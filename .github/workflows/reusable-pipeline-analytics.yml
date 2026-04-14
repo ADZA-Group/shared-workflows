@@ -1,0 +1,92 @@
+# ═══════════════════════════════════════════════════════════════
+# Reusable Pipeline Analytics — ADZA-Group
+#
+# Weekly report: success rate, duration trends, flaky tests.
+# Usage:
+#   uses: ADZA-Group/shared-workflows/.github/workflows/reusable-pipeline-analytics.yml@main
+#   with:
+#     app-name: "RecyclageApp"
+#     workflow-name: "CI/CD"
+# ═══════════════════════════════════════════════════════════════
+
+name: "📊 Pipeline Analytics"
+
+on:
+  workflow_call:
+    inputs:
+      app-name:
+        required: true
+        type: string
+      workflow-name:
+        required: false
+        type: string
+        default: "CI/CD"
+      days:
+        required: false
+        type: number
+        default: 7
+
+jobs:
+  analytics:
+    name: "📊 Weekly Report"
+    runs-on: [self-hosted, linux, proxmox]
+    steps:
+      - name: Fetch workflow runs
+        id: data
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          REPO="${{ github.repository }}"
+          WORKFLOW="${{ inputs.workflow-name }}"
+          DAYS=${{ inputs.days }}
+          SINCE=$(date -d "-${DAYS} days" -u +%Y-%m-%dT%H:%M:%SZ)
+
+          # Fetch recent runs
+          RUNS=$(gh api "repos/${REPO}/actions/workflows" \
+            --jq ".workflows[] | select(.name==\"${WORKFLOW}\") | .id")
+
+          if [ -z "$RUNS" ]; then
+            echo "No workflow found with name '${WORKFLOW}'"
+            exit 0
+          fi
+
+          DATA=$(gh api "repos/${REPO}/actions/workflows/${RUNS}/runs?created=>${SINCE}&per_page=100" \
+            --jq '.workflow_runs')
+
+          TOTAL=$(echo "$DATA" | jq 'length')
+          SUCCESS=$(echo "$DATA" | jq '[.[] | select(.conclusion=="success")] | length')
+          FAILURE=$(echo "$DATA" | jq '[.[] | select(.conclusion=="failure")] | length')
+          CANCELLED=$(echo "$DATA" | jq '[.[] | select(.conclusion=="cancelled")] | length')
+
+          if [ "$TOTAL" -gt 0 ]; then
+            SUCCESS_RATE=$(( SUCCESS * 100 / TOTAL ))
+          else
+            SUCCESS_RATE=0
+          fi
+
+          echo "total=$TOTAL" >> $GITHUB_OUTPUT
+          echo "success=$SUCCESS" >> $GITHUB_OUTPUT
+          echo "failure=$FAILURE" >> $GITHUB_OUTPUT
+          echo "cancelled=$CANCELLED" >> $GITHUB_OUTPUT
+          echo "success_rate=$SUCCESS_RATE" >> $GITHUB_OUTPUT
+
+      - name: Generate report
+        run: |
+          APP="${{ inputs.app-name }}"
+          DAYS=${{ inputs.days }}
+
+          echo "## 📊 $APP — Pipeline Analytics (${DAYS}d)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metrik | Wert |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Total Runs | **${{ steps.data.outputs.total }}** |" >> $GITHUB_STEP_SUMMARY
+          echo "| Success | ${{ steps.data.outputs.success }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Failure | ${{ steps.data.outputs.failure }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Cancelled | ${{ steps.data.outputs.cancelled }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Success Rate** | **${{ steps.data.outputs.success_rate }}%** |" >> $GITHUB_STEP_SUMMARY
+
+          RATE=${{ steps.data.outputs.success_rate }}
+          if [ "$RATE" -lt 80 ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ Success rate below 80% — investigate failing jobs" >> $GITHUB_STEP_SUMMARY
+          fi

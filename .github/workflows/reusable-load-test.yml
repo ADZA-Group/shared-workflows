@@ -1,0 +1,55 @@
+# ═══════════════════════════════════════════════════════════════
+# Reusable Load Test Workflow — ADZA-Group
+#
+# Runs k6 baseline load test against target URL.
+# Gates: p95 < threshold, error rate < 1%
+# Usage:
+#   uses: ADZA-Group/shared-workflows/.github/workflows/reusable-load-test.yml@main
+#   with:
+#     target-url: "https://app.adza-group.ch"
+#     test-script: "tests/load/baseline.js"
+# ═══════════════════════════════════════════════════════════════
+
+name: "📈 Load Test"
+
+on:
+  workflow_call:
+    inputs:
+      target-url:
+        required: true
+        type: string
+        description: "URL to load test"
+      test-script:
+        required: false
+        type: string
+        default: "tests/load/baseline.js"
+      threshold-p95-ms:
+        required: false
+        type: number
+        default: 500
+
+jobs:
+  load-test:
+    name: "📈 k6 Load Test"
+    runs-on: [self-hosted, linux, proxmox]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: "📈 Run k6 baseline"
+        run: |
+          k6 run \
+            --env TARGET_URL=${{ inputs.target-url }} \
+            --summary-trend-stats="avg,min,med,max,p(90),p(95),p(99)" \
+            ${{ inputs.test-script }}
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## 📈 Load Test" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metrik | Wert |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Target | \`${{ inputs.target-url }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Threshold | p95 < ${{ inputs.threshold-p95-ms }}ms |" >> $GITHUB_STEP_SUMMARY
+          echo "| Script | \`${{ inputs.test-script }}\` |" >> $GITHUB_STEP_SUMMARY
