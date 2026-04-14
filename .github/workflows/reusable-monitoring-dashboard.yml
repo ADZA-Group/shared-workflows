@@ -1,0 +1,178 @@
+# =================================================================
+# Reusable Monitoring Dashboard — ADZA-Group
+#
+# Central dashboard: Pipeline health, deployment status, app health.
+# Runs weekly or on-demand, aggregates data across repos.
+#
+# Usage:
+#   uses: ADZA-Group/shared-workflows/.github/workflows/reusable-monitoring-dashboard.yml@main
+#   with:
+#     app-name: "RecyclageApp"
+#     app-url: "https://app.adza-group.ch"
+# =================================================================
+
+name: "📊 Monitoring Dashboard"
+
+on:
+  workflow_call:
+    inputs:
+      app-name:
+        required: true
+        type: string
+      app-url:
+        required: true
+        type: string
+      workflow-name:
+        required: false
+        type: string
+        default: "CI/CD"
+      days:
+        required: false
+        type: number
+        default: 7
+
+jobs:
+  dashboard:
+    name: "📊 Dashboard"
+    runs-on: [self-hosted, linux, proxmox]
+    timeout-minutes: 10
+    steps:
+      - name: "📊 Pipeline Health"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          REPO="${{ github.repository }}"
+          WORKFLOW="${{ inputs.workflow-name }}"
+          DAYS=${{ inputs.days }}
+          APP="${{ inputs.app-name }}"
+          SINCE=$(date -d "-${DAYS} days" -u +%Y-%m-%dT%H:%M:%SZ)
+
+          # Fetch workflow ID
+          WF_ID=$(gh api "repos/${REPO}/actions/workflows" \
+            --jq ".workflows[] | select(.name==\"${WORKFLOW}\") | .id" 2>/dev/null)
+
+          if [ -z "$WF_ID" ]; then
+            echo "No workflow '${WORKFLOW}' found"
+            echo "## 📊 $APP Dashboard" >> $GITHUB_STEP_SUMMARY
+            echo "No CI/CD workflow data available." >> $GITHUB_STEP_SUMMARY
+            exit 0
+          fi
+
+          # Fetch runs
+          DATA=$(gh api "repos/${REPO}/actions/workflows/${WF_ID}/runs?created=>${SINCE}&per_page=100" \
+            --jq '.workflow_runs' 2>/dev/null || echo "[]")
+
+          TOTAL=$(echo "$DATA" | jq 'length')
+          SUCCESS=$(echo "$DATA" | jq '[.[] | select(.conclusion=="success")] | length')
+          FAILURE=$(echo "$DATA" | jq '[.[] | select(.conclusion=="failure")] | length')
+          CANCELLED=$(echo "$DATA" | jq '[.[] | select(.conclusion=="cancelled")] | length')
+
+          if [ "$TOTAL" -gt 0 ]; then
+            RATE=$(( SUCCESS * 100 / TOTAL ))
+          else
+            RATE=0
+          fi
+
+          # Duration stats (last 10 successful runs)
+          DURATIONS=$(echo "$DATA" | jq '[.[] | select(.conclusion=="success") | (.updated_at | fromdateiso8601) - (.created_at | fromdateiso8601)] | sort | if length > 0 then {min: min, max: max, avg: (add / length)} else {min: 0, max: 0, avg: 0} end' 2>/dev/null || echo '{"min":0,"max":0,"avg":0}')
+          AVG_MIN=$(echo "$DURATIONS" | jq '.avg / 60 | floor')
+          MIN_MIN=$(echo "$DURATIONS" | jq '.min / 60 | floor')
+          MAX_MIN=$(echo "$DURATIONS" | jq '.max / 60 | floor')
+
+          # Health indicator
+          if [ "$RATE" -ge 90 ]; then
+            HEALTH="🟢 Excellent"
+          elif [ "$RATE" -ge 70 ]; then
+            HEALTH="🟡 Good"
+          elif [ "$RATE" -ge 50 ]; then
+            HEALTH="🟠 Needs Attention"
+          else
+            HEALTH="🔴 Critical"
+          fi
+
+          echo "## 📊 $APP — CI/CD Dashboard (${DAYS}d)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Pipeline Health: $HEALTH" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Total Runs | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
+          echo "| Successful | $SUCCESS |" >> $GITHUB_STEP_SUMMARY
+          echo "| Failed | $FAILURE |" >> $GITHUB_STEP_SUMMARY
+          echo "| Cancelled | $CANCELLED |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Success Rate** | **${RATE}%** |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Duration (successful runs)" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Average | ${AVG_MIN} min |" >> $GITHUB_STEP_SUMMARY
+          echo "| Fastest | ${MIN_MIN} min |" >> $GITHUB_STEP_SUMMARY
+          echo "| Slowest | ${MAX_MIN} min |" >> $GITHUB_STEP_SUMMARY
+
+      - name: "🌐 Application Health"
+        run: |
+          URL="${{ inputs.app-url }}"
+          APP="${{ inputs.app-name }}"
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🌐 Application Health" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          # HTTP Status
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$URL/login" 2>/dev/null || echo "000")
+          TIME=$(curl -s -o /dev/null -w "%{time_total}" --max-time 10 "$URL/login" 2>/dev/null || echo "0")
+          if [ "$STATUS" = "200" ]; then
+            echo "| App Status | 🟢 HTTP $STATUS (${TIME}s) |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| App Status | 🔴 HTTP $STATUS |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # SSL Certificate
+          EXPIRY=$(echo | openssl s_client -servername "$(echo $URL | sed 's|https://||')" -connect "$(echo $URL | sed 's|https://||'):443" 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2)
+          if [ -n "$EXPIRY" ]; then
+            DAYS_LEFT=$(( ( $(date -d "$EXPIRY" +%s) - $(date +%s) ) / 86400 ))
+            if [ "$DAYS_LEFT" -gt 30 ]; then
+              echo "| SSL Certificate | 🟢 ${DAYS_LEFT} days remaining |" >> $GITHUB_STEP_SUMMARY
+            elif [ "$DAYS_LEFT" -gt 14 ]; then
+              echo "| SSL Certificate | 🟡 ${DAYS_LEFT} days remaining |" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "| SSL Certificate | 🔴 ${DAYS_LEFT} days remaining |" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+
+          # Response Time (5 samples)
+          TIMES=""
+          for i in 1 2 3 4 5; do
+            T=$(curl -s -o /dev/null -w "%{time_total}" --max-time 10 "$URL/login" 2>/dev/null || echo "9.99")
+            TIMES="$TIMES $T"
+          done
+          AVG=$(echo $TIMES | tr ' ' '\n' | awk '{sum+=$1} END{printf "%.3f", sum/NR}')
+          if [ "$(echo "$AVG < 1.0" | bc 2>/dev/null || echo 0)" = "1" ]; then
+            echo "| Avg Response Time | 🟢 ${AVG}s |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Avg Response Time | 🟡 ${AVG}s |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Security Headers
+          HEADERS=$(curl -sI --max-time 10 "$URL/login" 2>/dev/null)
+          for H in "x-content-type-options" "x-frame-options" "strict-transport-security"; do
+            if echo "$HEADERS" | grep -qi "$H"; then
+              echo "| $H | 🟢 Present |" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "| $H | 🔴 Missing |" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+
+      - name: "🐳 Docker Health"
+        run: |
+          APP="${{ inputs.app-name }}"
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🐳 Container Registry" >> $GITHUB_STEP_SUMMARY
+
+          # Check GHCR image
+          REPO="${{ github.repository }}"
+          TAGS=$(gh api "orgs/ADZA-Group/packages/container/${REPO##*/}/versions" --jq '.[0:5] | .[] | "\(.metadata.container.tags | join(", ")) — \(.created_at | split("T")[0])"' 2>/dev/null || echo "Unable to fetch")
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "$TAGS" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
