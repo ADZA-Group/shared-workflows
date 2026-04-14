@@ -1,0 +1,139 @@
+# ═══════════════════════════════════════════════════════════════
+# Reusable Notification Workflow — ADZA-Group
+#
+# Sends CI/CD failure alerts to Discord, Slack, Telegram.
+# Usage:
+#   uses: ADZA-Group/shared-workflows/.github/workflows/reusable-notify.yml@main
+#   with:
+#     app-name: "MyApp"
+#     status: "failure"
+#   secrets: inherit
+# ═══════════════════════════════════════════════════════════════
+
+name: "🚨 Notify"
+
+on:
+  workflow_call:
+    inputs:
+      app-name:
+        required: true
+        type: string
+        description: "Application name for alert title"
+      status:
+        required: true
+        type: string
+        description: "Pipeline status (success/failure)"
+      branch:
+        required: false
+        type: string
+        default: ""
+      sha:
+        required: false
+        type: string
+        default: ""
+      run-url:
+        required: false
+        type: string
+        default: ""
+    secrets:
+      DISCORD_WEBHOOK:
+        required: false
+      SLACK_WEBHOOK:
+        required: false
+      TELEGRAM_BOT_TOKEN:
+        required: false
+      TELEGRAM_CHAT_ID:
+        required: false
+
+jobs:
+  notify:
+    name: "🚨 Alert"
+    runs-on: [self-hosted, linux, proxmox]
+    steps:
+      - name: Build alert context
+        id: ctx
+        run: |
+          BRANCH="${{ inputs.branch || github.ref_name }}"
+          SHA="${{ inputs.sha || github.sha }}"
+          SHORT_SHA="${SHA:0:7}"
+          RUN_URL="${{ inputs.run-url || format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}"
+          ACTOR="${{ github.actor }}"
+          STATUS="${{ inputs.status }}"
+          APP="${{ inputs.app-name }}"
+
+          if [ "$STATUS" = "failure" ]; then
+            ICON="🔴"
+            COLOR="15158332"
+          else
+            ICON="🟢"
+            COLOR="3066993"
+          fi
+
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+          echo "sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+          echo "url=$RUN_URL" >> $GITHUB_OUTPUT
+          echo "actor=$ACTOR" >> $GITHUB_OUTPUT
+          echo "icon=$ICON" >> $GITHUB_OUTPUT
+          echo "color=$COLOR" >> $GITHUB_OUTPUT
+          echo "app=$APP" >> $GITHUB_OUTPUT
+          echo "status=$STATUS" >> $GITHUB_OUTPUT
+
+      - name: "Discord"
+        if: env.DISCORD_WEBHOOK != ''
+        continue-on-error: true
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          curl -sSf -X POST "$DISCORD_WEBHOOK" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "username": "${{ steps.ctx.outputs.app }} CI",
+              "embeds": [{
+                "title": "${{ steps.ctx.outputs.icon }} CI/CD Pipeline — ${{ steps.ctx.outputs.status }}",
+                "color": ${{ steps.ctx.outputs.color }},
+                "fields": [
+                  {"name": "App", "value": "`${{ steps.ctx.outputs.app }}`", "inline": true},
+                  {"name": "Branch", "value": "`${{ steps.ctx.outputs.branch }}`", "inline": true},
+                  {"name": "Commit", "value": "`${{ steps.ctx.outputs.sha }}`", "inline": true},
+                  {"name": "Author", "value": "${{ steps.ctx.outputs.actor }}", "inline": true},
+                  {"name": "Details", "value": "[View Run](${{ steps.ctx.outputs.url }})"}
+                ],
+                "timestamp": "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"
+              }]
+            }'
+
+      - name: "Slack"
+        if: env.SLACK_WEBHOOK != ''
+        continue-on-error: true
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+        run: |
+          curl -sSf -X POST "$SLACK_WEBHOOK" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "text": "${{ steps.ctx.outputs.icon }} ${{ steps.ctx.outputs.app }} CI/CD — ${{ steps.ctx.outputs.status }}",
+              "blocks": [
+                {"type": "header", "text": {"type": "plain_text", "text": "${{ steps.ctx.outputs.icon }} ${{ steps.ctx.outputs.app }} — ${{ steps.ctx.outputs.status }}"}},
+                {"type": "section", "fields": [
+                  {"type": "mrkdwn", "text": "*Branch:*\n`${{ steps.ctx.outputs.branch }}`"},
+                  {"type": "mrkdwn", "text": "*Commit:*\n`${{ steps.ctx.outputs.sha }}`"},
+                  {"type": "mrkdwn", "text": "*Author:*\n${{ steps.ctx.outputs.actor }}"}
+                ]},
+                {"type": "actions", "elements": [{"type": "button", "text": {"type": "plain_text", "text": "View Run"}, "url": "${{ steps.ctx.outputs.url }}"}]}
+              ]
+            }'
+
+      - name: "Telegram"
+        if: env.BOT_TOKEN != ''
+        continue-on-error: true
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          MSG="${{ steps.ctx.outputs.icon }} <b>${{ steps.ctx.outputs.app }} CI/CD — ${{ steps.ctx.outputs.status }}</b>%0A"
+          MSG+="<b>Branch:</b> <code>${{ steps.ctx.outputs.branch }}</code>%0A"
+          MSG+="<b>Commit:</b> <code>${{ steps.ctx.outputs.sha }}</code>%0A"
+          MSG+="<b>Author:</b> ${{ steps.ctx.outputs.actor }}%0A"
+          MSG+="<a href='${{ steps.ctx.outputs.url }}'>View Run</a>"
+          curl -sSf -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            -d chat_id="${CHAT_ID}" -d parse_mode=HTML -d text="$MSG"

@@ -1,0 +1,57 @@
+# ═══════════════════════════════════════════════════════════════
+# Composite Action: Python Environment Setup — ADZA-Group
+#
+# Usage:
+#   - uses: ADZA-Group/shared-workflows/.github/actions/setup-python-env@main
+#     with:
+#       python-version: "3.11"
+#       extra-packages: "pytest pytest-cov"
+# ═══════════════════════════════════════════════════════════════
+
+name: "🐍 Setup Python"
+description: "Installs Python, dependencies, and optional system packages"
+
+inputs:
+  python-version:
+    description: "Python version"
+    required: false
+    default: "3.11"
+  install-requirements:
+    description: "Install requirements.txt"
+    required: false
+    default: "true"
+  install-system-deps:
+    description: "Install tesseract, poppler (for PDF/OCR)"
+    required: false
+    default: "false"
+  extra-packages:
+    description: "Additional pip packages (space-separated)"
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+      with:
+        python-version: ${{ inputs.python-version }}
+        cache: pip
+
+    - name: System dependencies
+      if: inputs.install-system-deps == 'true'
+      shell: bash
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq tesseract-ocr tesseract-ocr-fra tesseract-ocr-deu poppler-utils
+
+    - name: Install requirements
+      if: inputs.install-requirements == 'true'
+      shell: bash
+      run: |
+        pip install --upgrade pip -q
+        pip install -r requirements.txt -q
+
+    - name: Extra packages
+      if: inputs.extra-packages != ''
+      shell: bash
+      run: pip install ${{ inputs.extra-packages }} -q

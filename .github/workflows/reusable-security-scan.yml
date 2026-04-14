@@ -1,0 +1,163 @@
+# ═══════════════════════════════════════════════════════════════
+# Reusable Security Scanning Workflow — ADZA-Group
+#
+# Bundles: gitleaks, Bandit, Semgrep, Trivy FS, pip-audit
+# Usage:
+#   uses: ADZA-Group/shared-workflows/.github/workflows/reusable-security-scan.yml@main
+#   with:
+#     python-version: "3.11"
+# ═══════════════════════════════════════════════════════════════
+
+name: "🔐 Security Scan"
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        required: false
+        type: string
+        default: "3.11"
+      run-gitleaks:
+        required: false
+        type: boolean
+        default: true
+      run-bandit:
+        required: false
+        type: boolean
+        default: true
+      run-semgrep:
+        required: false
+        type: boolean
+        default: true
+      run-trivy:
+        required: false
+        type: boolean
+        default: true
+      run-pip-audit:
+        required: false
+        type: boolean
+        default: true
+      bandit-exclude:
+        required: false
+        type: string
+        default: "./tests,./.venv"
+      semgrep-configs:
+        required: false
+        type: string
+        default: "p/python p/flask p/security-audit p/secrets"
+
+jobs:
+  # ── Secret Detection (HARD FAIL) ────────────────────────────
+  gitleaks:
+    name: "🔑 Secrets"
+    if: ${{ inputs.run-gitleaks }}
+    runs-on: [self-hosted, linux, proxmox]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          fetch-depth: 0
+      - name: Gitleaks
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz \
+            | tar xz -C /usr/local/bin gitleaks
+          gitleaks detect --source=. --no-banner --redact -v
+
+  # ── SAST: Bandit ────────────────────────────────────────────
+  bandit:
+    name: "🛡️ SAST Bandit"
+    if: ${{ inputs.run-bandit }}
+    runs-on: [self-hosted, linux, proxmox]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: pip
+      - run: pip install bandit[toml]==1.*
+      - name: Bandit scan
+        continue-on-error: true
+        run: |
+          bandit -r . --exclude ${{ inputs.bandit-exclude }} \
+            --skip B101,B104,B105,B106,B311,B603,B607 \
+            -ll -f json -o /tmp/bandit.json || true
+          bandit -r . --exclude ${{ inputs.bandit-exclude }} \
+            --skip B101,B104,B105,B106,B311,B603,B607 -ll
+      - name: Summary
+        if: always()
+        run: |
+          echo "## 🛡️ SAST — Bandit" >> $GITHUB_STEP_SUMMARY
+          python3 -c "
+          import json, pathlib
+          data = json.loads(pathlib.Path('/tmp/bandit.json').read_text())
+          r = data.get('results', [])
+          h = sum(1 for x in r if x['issue_severity']=='HIGH')
+          m = sum(1 for x in r if x['issue_severity']=='MEDIUM')
+          print(f'| Severity | Count |\n|---|---|\n| HIGH | {h} |\n| MEDIUM | {m} |')
+          " >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
+
+  # ── SAST: Semgrep ───────────────────────────────────────────
+  semgrep:
+    name: "🛡️ SAST Semgrep"
+    if: ${{ inputs.run-semgrep }}
+    runs-on: [self-hosted, linux, proxmox]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: ${{ inputs.python-version }}
+      - run: pip install semgrep==1.*
+      - name: Semgrep scan
+        continue-on-error: true
+        run: |
+          CONFIGS=""
+          for cfg in ${{ inputs.semgrep-configs }}; do
+            CONFIGS="$CONFIGS --config $cfg"
+          done
+          semgrep scan $CONFIGS \
+            --severity ERROR --severity WARNING \
+            --exclude tests --exclude .venv --metrics off || true
+
+  # ── Trivy Filesystem ────────────────────────────────────────
+  trivy:
+    name: "🔍 Trivy FS"
+    if: ${{ inputs.run-trivy }}
+    runs-on: [self-hosted, linux, proxmox]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - name: Filesystem scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+      - name: Config scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: config
+          scan-ref: .
+          format: table
+          severity: CRITICAL,HIGH,MEDIUM
+          exit-code: "0"
+
+  # ── SCA: pip-audit ──────────────────────────────────────────
+  pip-audit:
+    name: "📦 Dep Audit"
+    if: ${{ inputs.run-pip-audit }}
+    runs-on: [self-hosted, linux, proxmox]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: pip
+      - run: pip install pip-audit==2.*
+      - name: pip-audit
+        continue-on-error: true
+        run: |
+          pip-audit -r requirements.txt --desc | tee /tmp/audit.txt
+          echo "## 📦 SCA — Dependency Audit" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat /tmp/audit.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

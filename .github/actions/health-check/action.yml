@@ -1,0 +1,102 @@
+# ═══════════════════════════════════════════════════════════════
+# Composite Action: Health Check — ADZA-Group
+#
+# Polls an endpoint until ready, with security header validation.
+# Usage:
+#   - uses: ADZA-Group/shared-workflows/.github/actions/health-check@main
+#     with:
+#       url: "https://app.adza-group.ch"
+#       max-retries: 20
+# ═══════════════════════════════════════════════════════════════
+
+name: "✅ Health Check"
+description: "Polls URL until ready, validates security headers"
+
+inputs:
+  url:
+    description: "URL to check"
+    required: true
+  max-retries:
+    description: "Max polling attempts"
+    required: false
+    default: "20"
+  retry-delay:
+    description: "Seconds between retries"
+    required: false
+    default: "15"
+  check-security-headers:
+    description: "Validate security headers"
+    required: false
+    default: "true"
+  expected-status:
+    description: "Expected HTTP status code"
+    required: false
+    default: "200"
+
+outputs:
+  status:
+    description: "HTTP status code"
+    value: ${{ steps.check.outputs.status }}
+  response-time:
+    description: "Response time in seconds"
+    value: ${{ steps.check.outputs.time }}
+
+runs:
+  using: composite
+  steps:
+    - name: Poll endpoint
+      id: check
+      shell: bash
+      run: |
+        URL="${{ inputs.url }}"
+        MAX=${{ inputs.max-retries }}
+        DELAY=${{ inputs.retry-delay }}
+        EXPECTED=${{ inputs.expected-status }}
+
+        echo "Polling $URL (max ${MAX}x${DELAY}s)..."
+        for i in $(seq 1 $MAX); do
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$URL" 2>/dev/null || echo "000")
+          TIME=$(curl -s -o /dev/null -w "%{time_total}" --max-time 10 "$URL" 2>/dev/null || echo "0")
+
+          if [ "$STATUS" = "$EXPECTED" ]; then
+            echo "✅ Ready after attempt $i (HTTP $STATUS, ${TIME}s)"
+            echo "status=$STATUS" >> $GITHUB_OUTPUT
+            echo "time=$TIME" >> $GITHUB_OUTPUT
+            break
+          fi
+
+          echo "  Attempt $i/$MAX: HTTP $STATUS (expected $EXPECTED)"
+          if [ "$i" = "$MAX" ]; then
+            echo "::error::Health check failed after $MAX attempts (last: HTTP $STATUS)"
+            echo "status=$STATUS" >> $GITHUB_OUTPUT
+            echo "time=0" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          sleep $DELAY
+        done
+
+    - name: Security headers
+      if: inputs.check-security-headers == 'true'
+      shell: bash
+      run: |
+        URL="${{ inputs.url }}"
+        HEADERS=$(curl -sI --max-time 10 "$URL" 2>/dev/null)
+        FAIL=0
+
+        echo "## 🔒 Security Headers" >> $GITHUB_STEP_SUMMARY
+        echo "| Header | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|--------|--------|" >> $GITHUB_STEP_SUMMARY
+
+        for H in "X-Content-Type-Options" "X-Frame-Options" "Strict-Transport-Security"; do
+          if echo "$HEADERS" | grep -qi "$H"; then
+            echo "| $H | ✅ |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| $H | ❌ Missing |" >> $GITHUB_STEP_SUMMARY
+            echo "::warning::Security header missing: $H"
+            FAIL=1
+          fi
+        done
+
+        if [ "$FAIL" = "1" ]; then
+          echo "::warning::Some security headers are missing"
+        fi

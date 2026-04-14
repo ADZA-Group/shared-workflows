@@ -1,0 +1,136 @@
+# ═══════════════════════════════════════════════════════════════
+# Reusable Docker Build Workflow — ADZA-Group
+#
+# Buildx + Trivy scan + SBOM + Cosign signing + Image size gate
+# Usage:
+#   uses: ADZA-Group/shared-workflows/.github/workflows/reusable-docker-build.yml@main
+#   with:
+#     image-name: ghcr.io/adza-group/my-app
+#     image-size-limit-mb: 800
+# ═══════════════════════════════════════════════════════════════
+
+name: "🐳 Docker Build"
+
+on:
+  workflow_call:
+    inputs:
+      image-name:
+        required: true
+        type: string
+        description: "Full image name (e.g. ghcr.io/adza-group/my-app)"
+      dockerfile:
+        required: false
+        type: string
+        default: "Dockerfile"
+      context:
+        required: false
+        type: string
+        default: "."
+      push:
+        required: false
+        type: boolean
+        default: false
+      platforms:
+        required: false
+        type: string
+        default: "linux/amd64"
+      image-size-limit-mb:
+        required: false
+        type: number
+        default: 800
+      run-trivy:
+        required: false
+        type: boolean
+        default: true
+      generate-sbom:
+        required: false
+        type: boolean
+        default: true
+      sign-image:
+        required: false
+        type: boolean
+        default: false
+      build-args:
+        required: false
+        type: string
+        default: ""
+      cache-from:
+        required: false
+        type: string
+        default: "type=gha"
+    outputs:
+      image-tag:
+        description: "Built image tag"
+        value: ${{ jobs.build.outputs.tag }}
+      image-size-mb:
+        description: "Image size in MB"
+        value: ${{ jobs.build.outputs.size }}
+
+jobs:
+  build:
+    name: "🐳 Build + Scan"
+    runs-on: [self-hosted, linux, proxmox]
+    outputs:
+      tag: ${{ steps.meta.outputs.tags }}
+      size: ${{ steps.size.outputs.mb }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2  # v3
+
+      - name: Build image
+        uses: docker/build-push-action@1dc73863535b631f2b4f3bcec45c1f8ef532e871  # v5
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile }}
+          push: false
+          load: true
+          tags: ${{ inputs.image-name }}:ci-${{ github.run_id }}
+          cache-from: ${{ inputs.cache-from }}
+          cache-to: type=gha,mode=max
+          build-args: ${{ inputs.build-args }}
+
+      - name: "📏 Image Size Gate"
+        id: size
+        run: |
+          SIZE_BYTES=$(docker image inspect ${{ inputs.image-name }}:ci-${{ github.run_id }} --format='{{.Size}}')
+          MB=$((SIZE_BYTES / 1024 / 1024))
+          LAYERS=$(docker image inspect ${{ inputs.image-name }}:ci-${{ github.run_id }} --format='{{len .RootFS.Layers}}')
+          echo "mb=$MB" >> "$GITHUB_OUTPUT"
+
+          echo "## 🐳 Docker Image" >> $GITHUB_STEP_SUMMARY
+          echo "| Metrik | Wert |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Size | **${MB} MB** |" >> $GITHUB_STEP_SUMMARY
+          echo "| Layers | ${LAYERS} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Limit | ${{ inputs.image-size-limit-mb }} MB |" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$MB" -gt "${{ inputs.image-size-limit-mb }}" ]; then
+            echo "::error::Image zu gross: ${MB} MB (max ${{ inputs.image-size-limit-mb }} MB)"
+            exit 1
+          fi
+
+      - name: "🔍 Trivy Image Scan"
+        if: ${{ inputs.run-trivy }}
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ inputs.image-name }}:ci-${{ github.run_id }}
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+          ignore-unfixed: true
+
+      - name: "📋 SBOM (CycloneDX)"
+        if: ${{ inputs.generate-sbom }}
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ inputs.image-name }}:ci-${{ github.run_id }}
+          format: cyclonedx
+          output: sbom.json
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        if: ${{ inputs.generate-sbom }}
+        with:
+          name: sbom
+          path: sbom.json
+          retention-days: 90
