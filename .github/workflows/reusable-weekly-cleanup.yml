@@ -1,0 +1,96 @@
+# =================================================================
+# Reusable Weekly Cleanup — ADZA-Group
+#
+# Cleans up: failed/cancelled CI runs, Docker on LXC, temp files.
+# Usage:
+#   uses: ADZA-Group/shared-workflows/.github/workflows/reusable-weekly-cleanup.yml@main
+#   with:
+#     app-name: "RecyclageApp"
+#     keep-runs: 10
+# =================================================================
+
+name: "🧹 Weekly Cleanup"
+
+on:
+  workflow_call:
+    inputs:
+      app-name:
+        required: true
+        type: string
+      keep-runs:
+        required: false
+        type: number
+        default: 10
+
+jobs:
+  cleanup-runs:
+    name: "🗑️ Clean CI Runs"
+    runs-on: [self-hosted, linux, proxmox]
+    timeout-minutes: 10
+    steps:
+      - name: "Delete failed + cancelled runs"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          REPO="${{ github.repository }}"
+          KEEP=${{ inputs.keep-runs }}
+          DELETED=0
+
+          echo "## 🧹 ${{ inputs.app-name }} Weekly Cleanup" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Delete failed runs
+          FAILED=$(gh run list --repo "$REPO" --status failure --limit 50 --json databaseId --jq '.[].databaseId' 2>/dev/null || echo "")
+          for ID in $FAILED; do
+            gh run delete "$ID" --repo "$REPO" 2>/dev/null && DELETED=$((DELETED + 1))
+          done
+
+          # Delete cancelled runs
+          CANCELLED=$(gh run list --repo "$REPO" --status cancelled --limit 50 --json databaseId --jq '.[].databaseId' 2>/dev/null || echo "")
+          for ID in $CANCELLED; do
+            gh run delete "$ID" --repo "$REPO" 2>/dev/null && DELETED=$((DELETED + 1))
+          done
+
+          # Delete old runs beyond keep-limit
+          OLD=$(gh run list --repo "$REPO" --status completed --limit 100 --json databaseId --jq ".[$KEEP:] | .[].databaseId" 2>/dev/null || echo "")
+          for ID in $OLD; do
+            gh run delete "$ID" --repo "$REPO" 2>/dev/null && DELETED=$((DELETED + 1))
+          done
+
+          REMAINING=$(gh run list --repo "$REPO" --limit 100 --json databaseId --jq 'length' 2>/dev/null || echo "?")
+
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Runs deleted | $DELETED |" >> $GITHUB_STEP_SUMMARY
+          echo "| Runs remaining | $REMAINING |" >> $GITHUB_STEP_SUMMARY
+          echo "| Keep limit | $KEEP |" >> $GITHUB_STEP_SUMMARY
+
+  cleanup-runner:
+    name: "🐳 Clean Runner"
+    runs-on: [self-hosted, linux, proxmox]
+    timeout-minutes: 5
+    steps:
+      - name: "Docker cleanup"
+        run: |
+          BEFORE=$(docker system df --format '{{.Size}}' 2>/dev/null | head -1 || echo "0")
+          docker container prune -f 2>/dev/null | tail -1
+          docker image prune -af --filter "until=48h" 2>/dev/null | tail -1
+          docker volume prune -f 2>/dev/null | tail -1
+          docker builder prune -f --filter "until=48h" 2>/dev/null | tail -1
+          AFTER=$(docker system df --format '{{.Size}}' 2>/dev/null | head -1 || echo "0")
+
+          echo "### 🐳 Docker" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Before | $BEFORE |" >> $GITHUB_STEP_SUMMARY
+          echo "| After | $AFTER |" >> $GITHUB_STEP_SUMMARY
+
+      - name: "Temp + cache cleanup"
+        run: |
+          find /tmp -type f -mtime +2 -delete 2>/dev/null || true
+          find /home/runner/actions-runner*/_work/_temp -mindepth 1 -mtime +1 -delete 2>/dev/null || true
+          rm -rf /home/runner/.cache/pip /home/runner/.cache/uv /home/runner/.npm/_cacache 2>/dev/null || true
+
+          DISK=$(df -h / | tail -1 | awk '{print $3, "/", $2, "(" $5 ")"}')
+          echo "### 💾 Disk" >> $GITHUB_STEP_SUMMARY
+          echo "| Disk Used | $DISK |" >> $GITHUB_STEP_SUMMARY
