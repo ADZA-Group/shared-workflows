@@ -26,3 +26,27 @@ jobs:
           which python | grep -q "venv-smoke" || { echo "::error::venv not on PATH"; exit 1; }
           python -c "import flask; print('flask', flask.__version__)"
           python -c "import pytest_cov, coverage; print('coverage tools ok')"
+
+  run-pytest-shard:
+    name: "run-pytest-shard"
+    runs-on: [self-hosted, linux, proxmox]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - name: Fixture project (pytest + a trivial test)
+        run: |
+          printf 'pytest==8.*\n' > requirements.txt
+          mkdir -p app tests
+          printf 'def add(a, b):\n    return a + b\n' > app/calc.py
+          printf 'from app.calc import add\n\ndef test_add():\n    assert add(2, 3) == 5\n' > tests/test_calc.py
+      - uses: ./.github/actions/setup-python-deps
+        with: { install-coverage: "true", cache-key-suffix: shard-smoke }
+      - uses: ./.github/actions/run-pytest-shard
+        with:
+          shard-name: smoke
+          test-paths: tests/
+          coverage-source: app
+      - name: Assert artifacts produced
+        run: |
+          test -f ".coverage.smoke" || { echo "::error::no .coverage.smoke"; exit 1; }
+          test -f "junit-smoke.xml" || { echo "::error::no junit-smoke.xml"; exit 1; }

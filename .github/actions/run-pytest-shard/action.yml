@@ -1,0 +1,64 @@
+# Run ONE pytest shard. Emits .coverage.<shard> (data file, for combine) + junit-<shard>.xml.
+# Assumes a venv is already on PATH (setup-python-deps ran first) and that any DB/redis
+# services + env vars are provided by the calling JOB (composites cannot declare services).
+name: "Run pytest shard"
+description: "Run one test shard, emit coverage data file + junit xml, upload both"
+
+inputs:
+  shard-name:
+    description: "Unique shard id (used in artifact + file names)"
+    required: true
+  test-paths:
+    description: "Space-separated test paths (used when markers is empty)"
+    required: false
+    default: ""
+  markers:
+    description: "pytest -m expression (takes precedence over test-paths)"
+    required: false
+    default: ""
+  coverage-source:
+    description: "Module/dir passed to --cov"
+    required: false
+    default: "."
+  timeout:
+    description: "Per-test timeout seconds"
+    required: false
+    default: "60"
+
+runs:
+  using: composite
+  steps:
+    - name: Run pytest (collect coverage data, no report)
+      shell: bash
+      env:
+        COVERAGE_FILE: .coverage.${{ inputs.shard-name }}
+      run: |
+        if [ -n "${{ inputs.markers }}" ]; then
+          SELECT=(-m "${{ inputs.markers }}")
+        else
+          SELECT=(${{ inputs.test-paths }})
+        fi
+        pytest "${SELECT[@]}" \
+          --timeout=${{ inputs.timeout }} \
+          --cov=${{ inputs.coverage-source }} --cov-report= \
+          --junitxml=junit-${{ inputs.shard-name }}.xml \
+          -p no:cacheprovider
+
+    - name: Upload coverage data
+      if: always()
+      uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08  # v4.6.0
+      continue-on-error: true
+      with:
+        name: covdata-${{ inputs.shard-name }}
+        path: .coverage.${{ inputs.shard-name }}
+        include-hidden-files: true
+        retention-days: 1
+
+    - name: Upload junit
+      if: always()
+      uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08  # v4.6.0
+      continue-on-error: true
+      with:
+        name: junit-${{ inputs.shard-name }}
+        path: junit-${{ inputs.shard-name }}.xml
+        retention-days: 7
