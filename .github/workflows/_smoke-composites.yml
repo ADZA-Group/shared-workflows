@@ -71,3 +71,31 @@ jobs:
           blocking: "true"
       - name: Assert combined report exists
         run: test -f coverage.xml || { echo "::error::no combined coverage.xml"; exit 1; }
+
+  start-app:
+    name: "start-app"
+    runs-on: [self-hosted, linux, proxmox]
+    timeout-minutes: 5
+    steps:
+      - name: Fixture HTTP server with /health
+        run: |
+          mkdir -p _fix
+          cat > _fix/server.py <<'PY'
+          from http.server import BaseHTTPRequestHandler, HTTPServer
+          class H(BaseHTTPRequestHandler):
+              def do_GET(self):
+                  self.send_response(200 if self.path == "/health" else 404)
+                  self.end_headers(); self.wfile.write(b"ok")
+              def log_message(self, *a): pass
+          HTTPServer(("127.0.0.1", 5000), H).serve_forever()
+          PY
+      - id: app
+        uses: ./.github/actions/start-app
+        with:
+          boot-command: "python3 _fix/server.py"
+          health-url: "http://127.0.0.1:5000/health"
+      - name: Assert pid output + reachable, then stop
+        run: |
+          test -n "${{ steps.app.outputs.app-pid }}" || { echo "::error::no app-pid"; exit 1; }
+          curl -fsS http://127.0.0.1:5000/health
+          kill "${{ steps.app.outputs.app-pid }}"

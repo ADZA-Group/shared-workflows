@@ -1,0 +1,47 @@
+# Launch an app in the background and poll its health endpoint until ready.
+# App-agnostic: caller passes the boot command. Outputs the PID so caller can stop it.
+name: "Start app"
+description: "Background-launch an app and wait for its health endpoint"
+
+inputs:
+  boot-command:
+    description: "Shell command that starts the app in the foreground"
+    required: true
+  health-url:
+    description: "URL polled until it returns 200"
+    required: true
+  max-retries:
+    description: "Health poll attempts"
+    required: false
+    default: "30"
+  retry-delay:
+    description: "Seconds between attempts"
+    required: false
+    default: "1"
+
+outputs:
+  app-pid:
+    description: "PID of the launched app"
+    value: ${{ steps.launch.outputs.pid }}
+
+runs:
+  using: composite
+  steps:
+    - name: Launch + poll
+      id: launch
+      shell: bash
+      run: |
+        nohup ${{ inputs.boot-command }} > app-boot.log 2>&1 &
+        PID=$!
+        echo "pid=$PID" >> "$GITHUB_OUTPUT"
+        echo "Launched PID $PID; polling ${{ inputs.health-url }}"
+        for i in $(seq 1 ${{ inputs.max-retries }}); do
+          if curl -fsS -o /dev/null --max-time 5 "${{ inputs.health-url }}"; then
+            echo "✅ healthy after ${i} attempt(s)"; exit 0
+          fi
+          if ! kill -0 "$PID" 2>/dev/null; then
+            echo "::error::app process died during startup"; cat app-boot.log; exit 1
+          fi
+          sleep ${{ inputs.retry-delay }}
+        done
+        echo "::error::health check never passed"; cat app-boot.log; exit 1
