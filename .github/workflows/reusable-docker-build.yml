@@ -1,12 +1,18 @@
 # ═══════════════════════════════════════════════════════════════
-# Reusable Docker Build Workflow — ADZA-Group
+# Reusable Docker Build / Scan / Push / Sign — ADZA-Group (senior)
 #
-# Buildx + Trivy scan + SBOM + Cosign signing + Image size gate
+# build(load) → size-gate → Trivy image scan (dual-gate) → smoke → SBOM
+# and when push=true: GHCR login → metadata tags → :previous backup (main)
+# → build+push (multi-arch) → cosign keyless sign + SLSA provenance.
+#
 # Usage:
-#   uses: ADZA-Group/shared-workflows/.github/workflows/reusable-docker-build.yml@main
+#   uses: adza-group/shared-workflows/.github/workflows/reusable-docker-build.yml@v1
 #   with:
 #     image-name: ghcr.io/adza-group/my-app
-#     image-size-limit-mb: 800
+#     push: true
+#     sign-image: true
+#     platforms: "linux/amd64,linux/arm64"
+#   secrets: inherit
 # ═══════════════════════════════════════════════════════════════
 
 name: "🐳 Docker Build"
@@ -26,6 +32,10 @@ on:
         required: false
         type: string
         default: "."
+      runner-label:
+        required: false
+        type: string
+        default: '["self-hosted", "linux", "proxmox"]'
       push:
         required: false
         type: boolean
@@ -58,28 +68,56 @@ on:
         required: false
         type: string
         default: "type=gha"
+      smoke-command:
+        required: false
+        type: string
+        description: "Optional shell command to smoke-test the loaded image ($IMAGE env = ci tag)"
+        default: ""
+      tag-config:
+        required: false
+        type: string
+        description: "docker/metadata-action tags block"
+        default: |
+          type=ref,event=branch
+          type=ref,event=tag
+          type=sha,prefix={{branch}}-,format=short
+          type=raw,value=latest,enable={{is_default_branch}}
     outputs:
       image-tag:
-        description: "Built image tag"
+        description: "Local CI image tag (single-arch, loaded)"
         value: ${{ jobs.build.outputs.tag }}
       image-size-mb:
         description: "Image size in MB"
         value: ${{ jobs.build.outputs.size }}
+      digest:
+        description: "Pushed image digest (empty when push=false)"
+        value: ${{ jobs.build.outputs.digest }}
 
 jobs:
   build:
-    name: "🐳 Build + Scan"
-    runs-on: [self-hosted, linux, proxmox]
+    name: "🐳 Build + Scan + Push/Sign"
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
     outputs:
-      tag: ${{ steps.meta.outputs.tags }}
+      tag: ${{ steps.localtag.outputs.tag }}
       size: ${{ steps.size.outputs.mb }}
+      digest: ${{ steps.build-push.outputs.digest }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
+      - name: Set up QEMU (multi-arch only)
+        if: ${{ inputs.push && contains(inputs.platforms, ',') }}
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3  # v4.1.0
+
       - uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2  # v3
 
-      - name: Build image
-        uses: docker/build-push-action@1dc73863535b631f2b4f3bcec45c1f8ef532e871  # v5
+      - name: Build (single-arch, load for scan)
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7.2.0
         with:
           context: ${{ inputs.context }}
           file: ${{ inputs.dockerfile }}
@@ -90,47 +128,118 @@ jobs:
           cache-to: type=gha,mode=max
           build-args: ${{ inputs.build-args }}
 
+      - name: Local tag output
+        id: localtag
+        run: echo "tag=${{ inputs.image-name }}:ci-${{ github.run_id }}" >> "$GITHUB_OUTPUT"
+
       - name: "📏 Image Size Gate"
         id: size
         run: |
-          SIZE_BYTES=$(docker image inspect ${{ inputs.image-name }}:ci-${{ github.run_id }} --format='{{.Size}}')
+          REF="${{ inputs.image-name }}:ci-${{ github.run_id }}"
+          SIZE_BYTES=$(docker image inspect "$REF" --format='{{.Size}}')
           MB=$((SIZE_BYTES / 1024 / 1024))
-          LAYERS=$(docker image inspect ${{ inputs.image-name }}:ci-${{ github.run_id }} --format='{{len .RootFS.Layers}}')
+          LAYERS=$(docker image inspect "$REF" --format='{{len .RootFS.Layers}}')
           echo "mb=$MB" >> "$GITHUB_OUTPUT"
-
-          echo "## 🐳 Docker Image" >> $GITHUB_STEP_SUMMARY
-          echo "| Metrik | Wert |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Size | **${MB} MB** |" >> $GITHUB_STEP_SUMMARY
-          echo "| Layers | ${LAYERS} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Limit | ${{ inputs.image-size-limit-mb }} MB |" >> $GITHUB_STEP_SUMMARY
-
+          {
+            echo "## 🐳 Docker Image"
+            echo "| Metric | Value |"
+            echo "|--------|-------|"
+            echo "| Size | **${MB} MB** |"
+            echo "| Layers | ${LAYERS} |"
+            echo "| Limit | ${{ inputs.image-size-limit-mb }} MB |"
+          } >> "$GITHUB_STEP_SUMMARY"
           if [ "$MB" -gt "${{ inputs.image-size-limit-mb }}" ]; then
-            echo "::error::Image zu gross: ${MB} MB (max ${{ inputs.image-size-limit-mb }} MB)"
-            exit 1
+            echo "::error::Image too large: ${MB} MB (max ${{ inputs.image-size-limit-mb }} MB)"; exit 1
           fi
 
-      - name: "🔍 Trivy Image Scan"
+      - name: "🔍 Trivy Image Scan (gate)"
         if: ${{ inputs.run-trivy }}
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           image-ref: ${{ inputs.image-name }}:ci-${{ github.run_id }}
           format: table
           severity: CRITICAL,HIGH
-          exit-code: "0"
           ignore-unfixed: true
+          exit-code: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && '1' || '0' }}
+
+      - name: "🔥 Smoke boot"
+        if: ${{ inputs.smoke-command != '' }}
+        env:
+          IMAGE: ${{ inputs.image-name }}:ci-${{ github.run_id }}
+        run: ${{ inputs.smoke-command }}
 
       - name: "📋 SBOM (CycloneDX)"
         if: ${{ inputs.generate-sbom }}
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           image-ref: ${{ inputs.image-name }}:ci-${{ github.run_id }}
           format: cyclonedx
           output: sbom.json
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+      - name: Upload SBOM
         if: ${{ inputs.generate-sbom }}
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08  # v4.6.0
         with:
           name: sbom
           path: sbom.json
           retention-days: 90
+
+      - name: GHCR login
+        if: ${{ inputs.push }}
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee  # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata (tags + labels)
+        if: ${{ inputs.push }}
+        id: meta
+        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9  # v6.1.0
+        with:
+          images: ${{ inputs.image-name }}
+          tags: ${{ inputs.tag-config }}
+
+      - name: "Backup :latest -> :previous (main only)"
+        if: ${{ inputs.push && github.ref == 'refs/heads/main' }}
+        continue-on-error: true
+        run: |
+          if docker buildx imagetools inspect ${{ inputs.image-name }}:latest >/dev/null 2>&1; then
+            docker buildx imagetools create --tag ${{ inputs.image-name }}:previous ${{ inputs.image-name }}:latest
+            echo "::notice::backed up :latest -> :previous"
+          else
+            echo "::notice::no existing :latest to back up (first push)"
+          fi
+
+      - name: Build + push (multi-arch)
+        if: ${{ inputs.push }}
+        id: build-push
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7.2.0
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile }}
+          push: true
+          platforms: ${{ inputs.platforms }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: ${{ inputs.cache-from }}
+          cache-to: type=gha,mode=max
+          build-args: ${{ inputs.build-args }}
+
+      - name: Install cosign
+        if: ${{ inputs.push && inputs.sign-image }}
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
+
+      - name: Cosign sign (keyless)
+        if: ${{ inputs.push && inputs.sign-image }}
+        env:
+          DIGEST: ${{ steps.build-push.outputs.digest }}
+        run: cosign sign --yes "${{ inputs.image-name }}@${DIGEST}"
+
+      - name: SLSA build provenance
+        if: ${{ inputs.push && inputs.sign-image }}
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ inputs.image-name }}
+          subject-digest: ${{ steps.build-push.outputs.digest }}
+          push-to-registry: true
