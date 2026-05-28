@@ -33,6 +33,13 @@ runs:
       env:
         COVERAGE_FILE: .coverage.${{ inputs.shard-name }}
       run: |
+        # Portable coverage data: store RELATIVE source paths so a separate
+        # coverage-gate job (different workspace) can resolve them. Apps that
+        # ship their own coverage config must also set [run] relative_files = true.
+        if [ ! -f .coveragerc ]; then
+          printf '[run]\nrelative_files = true\n' > .coveragerc
+        fi
+        export COVERAGE_RCFILE=.coveragerc
         if [ -n "${{ inputs.markers }}" ]; then
           SELECT=(-m "${{ inputs.markers }}")
         else

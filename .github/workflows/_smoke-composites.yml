@@ -114,6 +114,14 @@ jobs:
           HEALTHCHECK CMD curl -f http://localhost:5000/health || exit 1
           CMD ["python", "app.py"]
           DOCKER
+      - name: Fixture compliant docker-compose.yml
+        run: |
+          cat > docker-compose.yml <<'COMPOSE'
+          services:
+            web:
+              image: ghcr.io/adza-group/example:1.0.0
+              restart: unless-stopped
+          COMPOSE
       - uses: ./.github/actions/opa-policy
         with:
           dockerfile: Dockerfile
@@ -125,3 +133,10 @@ jobs:
             echo "::error::non-compliant Dockerfile was NOT rejected"; exit 1
           fi
           echo "✅ non-compliant Dockerfile correctly rejected"
+      - name: Assert a non-compliant compose is rejected
+        run: |
+          printf 'services:\n  web:\n    image: nginx:latest\n' > bad-compose.yml
+          if conftest test bad-compose.yml --policy .github/actions/opa-policy/policy 2>/dev/null; then
+            echo "::error::non-compliant compose was NOT rejected"; exit 1
+          fi
+          echo "✅ non-compliant compose correctly rejected"

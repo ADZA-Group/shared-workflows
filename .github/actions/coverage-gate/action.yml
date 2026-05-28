@@ -31,9 +31,19 @@ runs:
           echo "::error::no coverage data files found (covdata-* artifacts missing)"; exit 1
         fi
         cp .covdata/.coverage.* .
+        if [ ! -f .coveragerc ]; then
+          printf '[run]\nrelative_files = true\n' > .coveragerc
+        fi
+        export COVERAGE_RCFILE=.coveragerc
         coverage combine
         coverage xml -o coverage.xml
-        TOTAL=$(coverage report | tail -1 | grep -oE '[0-9]+%' | tr -d '%')
+        TOTAL=$(coverage report --format=total 2>/dev/null || true)
+        if ! [[ "$TOTAL" =~ ^[0-9]+$ ]]; then
+          TOTAL=$(coverage report | tail -1 | grep -oE '[0-9]+%' | tr -d '%' || true)
+        fi
+        if ! [[ "$TOTAL" =~ ^[0-9]+$ ]]; then
+          echo "::error::could not determine coverage total"; exit 1
+        fi
         echo "## 📊 Coverage" >> "$GITHUB_STEP_SUMMARY"
         echo "| Metric | Value |" >> "$GITHUB_STEP_SUMMARY"
         echo "|--------|-------|" >> "$GITHUB_STEP_SUMMARY"

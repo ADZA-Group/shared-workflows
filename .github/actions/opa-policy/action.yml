@@ -12,7 +12,7 @@ inputs:
     required: false
     default: "docker-compose*.yml"
   conftest-version:
-    description: "conftest release to install"
+    description: "conftest release to install. NOTE: the bundled Rego uses OPA<1.0 syntax (deny[msg]{}); do not bump to a conftest built on OPA>=1.0 without converting the policies to rego.v1 syntax first."
     required: false
     default: "0.56.0"
   blocking:
@@ -33,7 +33,7 @@ runs:
         fi
         conftest --version
 
-    - name: Test Dockerfile
+    - name: Run policies
       shell: bash
       run: |
         POLICY="${{ github.action_path }}/policy"
@@ -43,13 +43,6 @@ runs:
         else
           echo "::notice::no Dockerfile at ${{ inputs.dockerfile }} — skipping"
         fi
-        echo "RC=$RC" >> "$GITHUB_ENV"
-
-    - name: Test compose files
-      shell: bash
-      run: |
-        POLICY="${{ github.action_path }}/policy"
-        RC=${RC:-0}
         for f in ${{ inputs.compose-glob }}; do
           [ -f "$f" ] || continue
           conftest test "$f" --policy "$POLICY" || RC=$?

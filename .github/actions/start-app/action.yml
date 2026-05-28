@@ -5,7 +5,7 @@ description: "Background-launch an app and wait for its health endpoint"
 
 inputs:
   boot-command:
-    description: "Shell command that starts the app in the foreground"
+    description: "Shell command that starts the app in the foreground (run via bash -c; pass a single foreground process — the PID returned is the bash wrapper)"
     required: true
   health-url:
     description: "URL polled until it returns 200"
@@ -31,7 +31,7 @@ runs:
       id: launch
       shell: bash
       run: |
-        nohup ${{ inputs.boot-command }} > app-boot.log 2>&1 &
+        nohup bash -c "${{ inputs.boot-command }}" > app-boot.log 2>&1 &
         PID=$!
         echo "pid=$PID" >> "$GITHUB_OUTPUT"
         echo "Launched PID $PID; polling ${{ inputs.health-url }}"
