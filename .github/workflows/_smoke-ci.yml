@@ -4,8 +4,6 @@ name: "🧪 Smoke — CI Orchestrator"
 
 on:
   workflow_dispatch:
-  push:
-    branches: [dev]
 
 permissions:
   contents: read
