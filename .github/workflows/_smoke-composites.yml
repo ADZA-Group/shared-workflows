@@ -9,9 +9,20 @@ permissions:
   contents: read
 
 jobs:
-  noop:
-    name: "placeholder (replaced as composites land)"
+  setup-python-deps:
+    name: "setup-python-deps"
     runs-on: [self-hosted, linux, proxmox]
-    timeout-minutes: 2
+    timeout-minutes: 8
     steps:
-      - run: echo "harness ready"
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - name: Fixture requirements.txt
+        run: printf 'flask==3.*\n' > requirements.txt
+      - uses: ./.github/actions/setup-python-deps
+        with:
+          install-coverage: "true"
+          cache-key-suffix: smoke
+      - name: Assert venv on PATH + deps importable
+        run: |
+          which python | grep -q "venv-smoke" || { echo "::error::venv not on PATH"; exit 1; }
+          python -c "import flask; print('flask', flask.__version__)"
+          python -c "import pytest_cov, coverage; print('coverage tools ok')"
