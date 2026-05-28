@@ -1,3 +1,6 @@
+import tseslint from "typescript-eslint";
+
+// base = @typescript-eslint parser + plugin, NO rules enabled → parses TS, 0 violations.
 export default [
-  { files: ["src/**/*.ts"], rules: {} }
+  ...tseslint.configs.base,
 ];
