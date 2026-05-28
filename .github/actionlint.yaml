@@ -1,0 +1,6 @@
+# actionlint config for shared-workflows repo.
+# Declares custom self-hosted runner labels used across ADZA-Group.
+self-hosted-runner:
+  labels:
+    - proxmox
+    - linux

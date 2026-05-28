@@ -1,0 +1,17 @@
+# Smoke harness for shared-workflows composite actions.
+# Manual only. Each job exercises one composite on the real self-hosted runner.
+name: "🧪 Smoke — Composites"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  noop:
+    name: "placeholder (replaced as composites land)"
+    runs-on: [self-hosted, linux, proxmox]
+    timeout-minutes: 2
+    steps:
+      - run: echo "harness ready"
