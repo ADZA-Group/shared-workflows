@@ -213,7 +213,7 @@ jobs:
   coverage:
     name: "📊 Coverage Gate"
     needs: test-matrix
-    if: ${{ always() && needs.test-matrix.result != 'skipped' }}
+    if: ${{ always() && needs.test-matrix.result == 'success' }}
     runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 10
     steps:
@@ -281,7 +281,7 @@ jobs:
         run: |
           START="${{ needs.changes.outputs.start_time }}"
           NOW=$(date +%s)
-          DUR=$(( NOW - ${START:-NOW} ))
+          DUR=$(( NOW - ${START:-$NOW} ))
           {
             echo "## 🚀 CI Telemetry — ${{ inputs.app-name }}"
             echo "| Job | Result |"

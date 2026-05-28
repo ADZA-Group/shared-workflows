@@ -104,11 +104,13 @@ jobs:
           cache-key-suffix: bandit
       - name: Bandit scan
         continue-on-error: ${{ !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
+        env:
+          BANDIT_EXCLUDE: ${{ inputs.bandit-exclude }}
         run: |
-          bandit -r . --exclude ${{ inputs.bandit-exclude }} \
+          bandit -r . --exclude "$BANDIT_EXCLUDE" \
             --skip B101,B104,B105,B106,B311,B603,B607 \
             -ll -f json -o /tmp/bandit.json || true
-          bandit -r . --exclude ${{ inputs.bandit-exclude }} \
+          bandit -r . --exclude "$BANDIT_EXCLUDE" \
             --skip B101,B104,B105,B106,B311,B603,B607 -ll
       - name: Summary
         if: always()
@@ -138,9 +140,11 @@ jobs:
           cache-key-suffix: semgrep
       - name: Semgrep scan
         continue-on-error: ${{ !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
+        env:
+          SEMGREP_CONFIGS: ${{ inputs.semgrep-configs }}
         run: |
           CONFIGS=""
-          for cfg in ${{ inputs.semgrep-configs }}; do
+          for cfg in $SEMGREP_CONFIGS; do
             CONFIGS="$CONFIGS --config $cfg"
           done
           semgrep scan $CONFIGS \
@@ -188,6 +192,10 @@ jobs:
       - name: pip-audit
         continue-on-error: ${{ !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
         run: |
+          if [ ! -f requirements.txt ]; then
+            echo "::notice::no requirements.txt — skipping pip-audit"; exit 0
+          fi
+          set -o pipefail
           pip-audit -r requirements.txt --desc | tee /tmp/audit.txt
           {
             echo "## 📦 SCA — Dependency Audit"
