@@ -50,3 +50,24 @@ jobs:
         run: |
           test -f ".coverage.smoke" || { echo "::error::no .coverage.smoke"; exit 1; }
           test -f "junit-smoke.xml" || { echo "::error::no junit-smoke.xml"; exit 1; }
+
+  coverage-gate:
+    name: "coverage-gate"
+    runs-on: [self-hosted, linux, proxmox]
+    needs: run-pytest-shard
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - name: Fixture (coverage tool + the source the data file references)
+        run: |
+          printf 'coverage[toml]\n' > requirements.txt
+          mkdir -p app
+          printf 'def add(a, b):\n    return a + b\n' > app/calc.py
+      - uses: ./.github/actions/setup-python-deps
+        with: { cache-key-suffix: covgate-smoke }
+      - uses: ./.github/actions/coverage-gate
+        with:
+          threshold: "0"
+          blocking: "true"
+      - name: Assert combined report exists
+        run: test -f coverage.xml || { echo "::error::no combined coverage.xml"; exit 1; }
