@@ -4,6 +4,8 @@ name: "🧪 Smoke — Composites"
 
 on:
   workflow_dispatch:
+  push:
+    branches: [dev]
 
 permissions:
   contents: read

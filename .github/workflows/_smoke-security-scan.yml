@@ -6,6 +6,8 @@ name: "🧪 Smoke — Security Scan"
 
 on:
   workflow_dispatch:
+  push:
+    branches: [dev]
 
 permissions:
   contents: read

@@ -73,6 +73,18 @@ on:
         required: false
         type: boolean
         default: true
+      enable-push:
+        required: false
+        type: boolean
+        default: true
+      dockerfile:
+        required: false
+        type: string
+        default: "Dockerfile"
+      docker-context:
+        required: false
+        type: string
+        default: "."
 
 permissions:
   contents: read
@@ -241,7 +253,9 @@ jobs:
     uses: adza-group/shared-workflows/.github/workflows/reusable-docker-build.yml@dev
     with:
       image-name: ${{ inputs.image-name != '' && inputs.image-name || format('ghcr.io/adza-group/{0}', inputs.app-name) }}
-      push: ${{ github.event_name == 'push' }}
+      push: ${{ inputs.enable-push && github.event_name == 'push' }}
+      dockerfile: ${{ inputs.dockerfile }}
+      context: ${{ inputs.docker-context }}
       sign-image: ${{ inputs.sign-image }}
       platforms: ${{ inputs.multi-arch && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
       image-size-limit-mb: ${{ inputs.image-size-limit-mb }}
