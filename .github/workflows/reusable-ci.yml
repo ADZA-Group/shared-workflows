@@ -144,6 +144,9 @@ jobs:
     name: "🔐 Security"
     needs: changes
     if: ${{ needs.changes.outputs.any_code == 'true' || needs.changes.outputs.ci == 'true' }}
+    permissions:
+      contents: read
+      security-events: write   # CodeQL upload (capped by caller's grant)
     uses: adza-group/shared-workflows/.github/workflows/reusable-security-scan.yml@dev
     with:
       python-version: ${{ inputs.python-version }}
@@ -250,6 +253,11 @@ jobs:
     name: "🐳 Build"
     needs: [changes, lint-python, test-matrix]
     if: ${{ always() && needs.lint-python.result != 'failure' && needs.test-matrix.result == 'success' && (needs.changes.outputs.any_code == 'true' || needs.changes.outputs.ci == 'true') }}
+    permissions:
+      contents: read
+      packages: write       # GHCR push
+      id-token: write        # cosign keyless OIDC
+      attestations: write    # SLSA build provenance
     uses: adza-group/shared-workflows/.github/workflows/reusable-docker-build.yml@dev
     with:
       image-name: ${{ inputs.image-name != '' && inputs.image-name || format('ghcr.io/adza-group/{0}', inputs.app-name) }}

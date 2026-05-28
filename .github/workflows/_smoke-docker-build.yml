@@ -9,6 +9,9 @@ on:
 
 permissions:
   contents: read
+  packages: write       # reusable-docker-build's job declares these unconditionally,
+  id-token: write        # so the caller must grant them even when push=false
+  attestations: write    # (GitHub fails the run at startup if the callee exceeds the caller)
 
 jobs:
   build:
