@@ -99,3 +99,29 @@ jobs:
           test -n "${{ steps.app.outputs.app-pid }}" || { echo "::error::no app-pid"; exit 1; }
           curl -fsS http://127.0.0.1:5000/health
           kill "${{ steps.app.outputs.app-pid }}"
+
+  opa-policy:
+    name: "opa-policy"
+    runs-on: [self-hosted, linux, proxmox]
+    timeout-minutes: 5
+    steps:
+      - name: Fixture compliant Dockerfile
+        run: |
+          cat > Dockerfile <<'DOCKER'
+          FROM python:3.11-slim@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          RUN useradd -m app
+          USER app
+          HEALTHCHECK CMD curl -f http://localhost:5000/health || exit 1
+          CMD ["python", "app.py"]
+          DOCKER
+      - uses: ./.github/actions/opa-policy
+        with:
+          dockerfile: Dockerfile
+          blocking: "true"
+      - name: Assert a non-compliant Dockerfile is rejected
+        run: |
+          printf 'FROM python:latest\nCMD ["python","app.py"]\n' > Bad.dockerfile
+          if conftest test Bad.dockerfile --policy .github/actions/opa-policy/policy --parser dockerfile 2>/dev/null; then
+            echo "::error::non-compliant Dockerfile was NOT rejected"; exit 1
+          fi
+          echo "✅ non-compliant Dockerfile correctly rejected"

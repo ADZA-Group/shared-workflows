@@ -1,0 +1,61 @@
+# Policy-as-code gate: conftest runs bundled Rego policies against Dockerfile + compose.
+name: "OPA policy"
+description: "conftest/OPA checks on Dockerfile and docker-compose using shared Rego"
+
+inputs:
+  dockerfile:
+    description: "Path to Dockerfile"
+    required: false
+    default: "Dockerfile"
+  compose-glob:
+    description: "Glob for compose files (empty to skip)"
+    required: false
+    default: "docker-compose*.yml"
+  conftest-version:
+    description: "conftest release to install"
+    required: false
+    default: "0.56.0"
+  blocking:
+    description: "Fail on violations (false => warn only)"
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Install conftest
+      shell: bash
+      run: |
+        if ! command -v conftest >/dev/null 2>&1; then
+          V="${{ inputs.conftest-version }}"
+          curl -sSfL "https://github.com/open-policy-agent/conftest/releases/download/v${V}/conftest_${V}_Linux_x86_64.tar.gz" \
+            | sudo tar xz -C /usr/local/bin conftest
+        fi
+        conftest --version
+
+    - name: Test Dockerfile
+      shell: bash
+      run: |
+        POLICY="${{ github.action_path }}/policy"
+        RC=0
+        if [ -f "${{ inputs.dockerfile }}" ]; then
+          conftest test "${{ inputs.dockerfile }}" --policy "$POLICY" --parser dockerfile || RC=$?
+        else
+          echo "::notice::no Dockerfile at ${{ inputs.dockerfile }} — skipping"
+        fi
+        echo "RC=$RC" >> "$GITHUB_ENV"
+
+    - name: Test compose files
+      shell: bash
+      run: |
+        POLICY="${{ github.action_path }}/policy"
+        RC=${RC:-0}
+        for f in ${{ inputs.compose-glob }}; do
+          [ -f "$f" ] || continue
+          conftest test "$f" --policy "$POLICY" || RC=$?
+        done
+        if [ "$RC" != "0" ] && [ "${{ inputs.blocking }}" = "true" ]; then
+          echo "::error::OPA policy violations found"; exit 1
+        elif [ "$RC" != "0" ]; then
+          echo "::warning::OPA policy violations (advisory)"
+        fi
