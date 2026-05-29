@@ -1,0 +1,16 @@
+name: "🧪 Smoke — DAST"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dast:
+    uses: ./.github/workflows/reusable-dast.yml
+    with:
+      target-url: "https://example.com"
+      scan-type: baseline
+      blocking: false
+      runner-label: '["ubuntu-latest"]'
