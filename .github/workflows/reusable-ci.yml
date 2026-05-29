@@ -181,6 +181,146 @@ jobs:
           ruff check . --output-format=github
           ruff format --check --diff .
 
+  lint-dockerfile:
+    name: "🐳 Lint Dockerfile"
+    needs: changes
+    if: ${{ needs.changes.outputs.docker == 'true' || needs.changes.outputs.ci == 'true' }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 5
+    continue-on-error: ${{ !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - name: Install hadolint v2.12.0
+        run: |
+          curl -sSfL https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-x86_64 \
+            -o /usr/local/bin/hadolint
+          chmod +x /usr/local/bin/hadolint
+      - name: Lint
+        run: |
+          [ -f "${{ inputs.dockerfile }}" ] || { echo "::notice::no Dockerfile at ${{ inputs.dockerfile }} — skipping"; exit 0; }
+          hadolint "${{ inputs.dockerfile }}" --format tty
+
+  code-quality:
+    name: "📊 Code Quality"
+    needs: changes
+    if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true' }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@dev
+        with:
+          install-requirements: "false"
+          extra-packages: "radon==6.*"
+          cache-key-suffix: radon
+      - name: Radon complexity
+        run: |
+          {
+            echo "## 📊 Code Quality (radon)"
+            echo '```'
+            radon cc . -a -nb --exclude "tests,__pycache__,.venv" 2>/dev/null || echo "(no Python source found)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          radon cc . -a -nb --exclude "tests,__pycache__,.venv" 2>/dev/null || true
+
+  dead-code:
+    name: "💀 Dead Code"
+    needs: changes
+    if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true' }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@dev
+        with:
+          install-requirements: "false"
+          extra-packages: "vulture==2.*"
+          cache-key-suffix: vulture
+      - name: Vulture scan
+        run: |
+          {
+            echo "## 💀 Dead Code (vulture)"
+            echo '```'
+            vulture . --min-confidence 80 --exclude tests,__pycache__,.venv 2>/dev/null || echo "(no issues or no source)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          vulture . --min-confidence 80 --exclude tests,__pycache__,.venv 2>/dev/null || true
+
+  todo-tracker:
+    name: "📌 TODOs"
+    needs: changes
+    if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true' }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - name: Count open TODOs
+        run: |
+          COUNT=$(grep -rn --include="*.py" "TODO\|FIXME\|HACK\|XXX" . 2>/dev/null | grep -v ".venv" | wc -l || echo 0)
+          {
+            echo "## 📌 TODO Tracker"
+            echo "| Metric | Count |"
+            echo "|--------|-------|"
+            echo "| Open TODO/FIXME/HACK/XXX | ${COUNT} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$COUNT" -gt 0 ]; then
+            {
+              echo ""
+              echo "<details><summary>Show items</summary>"
+              echo ""
+              echo '```'
+              grep -rn --include="*.py" "TODO\|FIXME\|HACK\|XXX" . 2>/dev/null | grep -v ".venv" | head -50
+              echo '```'
+              echo "</details>"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  license-check:
+    name: "⚖️ Licenses"
+    needs: changes
+    if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true' }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 10
+    continue-on-error: ${{ !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@dev
+        with:
+          install-requirements: "true"
+          extra-packages: "pip-licenses==4.*"
+          cache-key-suffix: licenses
+      - name: Check for copyleft
+        run: |
+          COPYLEFT="GPL-2.0-only,GPL-2.0-or-later,GPL-3.0-only,GPL-3.0-or-later,LGPL-2.1-only,LGPL-2.1-or-later,LGPL-3.0-only,LGPL-3.0-or-later,AGPL-3.0-only,AGPL-3.0-or-later"
+          pip-licenses --format=markdown >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          pip-licenses --fail-on="$COPYLEFT" 2>&1 || {
+            echo "::error::Copyleft license detected in dependencies"
+            exit 1
+          }
+
+  commit-lint:
+    name: "📝 Commit Lint"
+    needs: changes
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 5
+    continue-on-error: true
+    steps:
+      - name: Check PR title (Conventional Commits)
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          PATTERN='^(feat|fix|docs|chore|ci|test|refactor|style|perf|revert)(\(.+\))?: .+'
+          if ! echo "$PR_TITLE" | grep -Eq "$PATTERN"; then
+            echo "::warning::PR title does not follow Conventional Commits: '$PR_TITLE'"
+            echo "Expected format: <type>(scope): description"
+            echo "Valid types: feat fix docs chore ci test refactor style perf revert"
+          else
+            echo "✅ PR title follows Conventional Commits: '$PR_TITLE'"
+          fi
+
   security:
     name: "🔐 Security"
     needs: changes
