@@ -548,6 +548,93 @@ jobs:
       runner-label: ${{ inputs.runner-label }}
     secrets: inherit
 
+  verify-staging:
+    name: "🔍 Verify Staging"
+    needs: [docker-build]
+    if: >-
+      ${{ always() && inputs.staging-url != '' && inputs.deploy-prod &&
+      needs.docker-build.result == 'success' &&
+      github.event_name == 'push' }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - uses: adza-group/shared-workflows/.github/actions/health-check@dev
+        with:
+          url: ${{ inputs.staging-url }}
+          max-retries: "40"
+          retry-delay: "30"
+          check-security-headers: "true"
+
+  require-staging-green:
+    name: "🚦 Require Staging Green"
+    needs: [verify-staging]
+    if: >-
+      ${{ always() && inputs.staging-url != '' &&
+      github.ref == 'refs/heads/main' }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 5
+    steps:
+      - name: Gate on staging health
+        run: |
+          if [ "${{ needs.verify-staging.result }}" != "success" ]; then
+            echo "::error::staging not green (result: ${{ needs.verify-staging.result }}) — blocking main push"
+            exit 1
+          fi
+          echo "✅ staging verified green — prod push allowed"
+
+  verify-prod:
+    name: "✅ Verify Prod"
+    needs: [docker-build, require-staging-green]
+    if: >-
+      ${{ always() && inputs.prod-url != '' && inputs.deploy-prod &&
+      needs.docker-build.result == 'success' &&
+      github.ref == 'refs/heads/main' }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - uses: adza-group/shared-workflows/.github/actions/health-check@dev
+        id: prod-check
+        continue-on-error: true
+        with:
+          url: ${{ inputs.prod-url }}
+          max-retries: "40"
+          retry-delay: "30"
+
+      - name: Auto-rollback on failure
+        if: steps.prod-check.outcome == 'failure'
+        run: |
+          IMAGE="${{ inputs.image-name != '' && inputs.image-name || format('ghcr.io/adza-group/{0}', inputs.app-name) }}"
+          echo "::warning::prod unhealthy — attempting rollback :previous → :latest"
+          if docker buildx imagetools inspect "${IMAGE}:previous" >/dev/null 2>&1; then
+            docker buildx imagetools create --tag "${IMAGE}:latest" "${IMAGE}:previous"
+            echo "::warning::rollback applied — watchtower will re-deploy :previous on next poll"
+          else
+            echo "::warning::no :previous tag found — rollback skipped"
+          fi
+
+      - name: Open incident issue on failure
+        if: steps.prod-check.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create \
+            --title "🚨 Prod verify failed — ${{ inputs.app-name }} @ ${GITHUB_SHA:0:7}" \
+            --body "## Prod health check failed
+          App: \`${{ inputs.app-name }}\`
+          URL: ${{ inputs.prod-url }}
+          SHA: ${{ github.sha }}
+          Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --label "incident,production" || true
+
+      - name: Fail on prod unhealthy
+        if: steps.prod-check.outcome == 'failure'
+        run: exit 1
+
   telemetry:
     name: "📈 Telemetry"
     needs: [changes, lint-python, security, test-matrix, coverage, test-results, docker-build]
