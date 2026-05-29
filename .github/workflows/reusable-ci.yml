@@ -457,42 +457,14 @@ jobs:
     name: "🧬 Mutation (incremental)"
     needs: [changes, test-matrix]
     if: ${{ inputs.enable-mutation && needs.test-matrix.result == 'success' && needs.changes.outputs.python == 'true' }}
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
-    timeout-minutes: 20
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-        with:
-          fetch-depth: 0
-      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@dev
-        with:
-          install-requirements: "true"
-          extra-packages: "mutmut==2.*"
-          cache-key-suffix: mutmut
-      - name: Get changed non-test Python files
-        id: changed
-        run: |
-          FILES=$(git diff --name-only origin/main...HEAD -- '*.py' 2>/dev/null \
-            | grep -v '/test' | grep -v '^tests/' | head -20 \
-            | tr '\n' ' ' | xargs || echo "")
-          echo "files=${FILES}" >> "$GITHUB_OUTPUT"
-      - name: Run mutmut incremental
-        run: |
-          FILES="${{ steps.changed.outputs.files }}"
-          if [ -z "${FILES}" ]; then
-            echo "::notice::no non-test Python changes vs main — skipping mutation"
-            exit 0
-          fi
-          mutmut run --paths-to-mutate "${FILES}" || true
-          SURVIVED=$(mutmut results 2>/dev/null | grep -c "survived" || echo 0)
-          {
-            echo "## 🧬 Mutation Testing (incremental)"
-            echo "| Metric | Value |"
-            echo "|--------|-------|"
-            echo "| Surviving mutants | ${SURVIVED} |"
-            echo "| Mutated files | \`${FILES}\` |"
-            echo "| Mode | incremental (non-test changes vs main) |"
-          } >> "$GITHUB_STEP_SUMMARY"
+    permissions:
+      contents: read
+    uses: adza-group/shared-workflows/.github/workflows/reusable-mutation.yml@dev
+    with:
+      mode: incremental
+      base-ref: main
+      runner-label: ${{ inputs.runner-label }}
+    secrets: inherit
 
   frontend:
     name: "🎨 Frontend"
@@ -519,6 +491,22 @@ jobs:
       target-url: ${{ inputs.staging-url }}
       blocking: false
       runner-label: ${{ inputs.runner-label }}
+    secrets: inherit
+
+  dast:
+    name: "🔓 DAST"
+    needs: [verify-staging]
+    if: >-
+      ${{ always() && inputs.enable-dast && inputs.staging-url != '' &&
+      needs.verify-staging.result == 'success' }}
+    permissions:
+      contents: read
+    uses: adza-group/shared-workflows/.github/workflows/reusable-dast.yml@dev
+    with:
+      target-url: ${{ inputs.staging-url }}
+      scan-type: baseline
+      blocking: false
+      runner-label: '["ubuntu-latest"]'
     secrets: inherit
 
   docker-build:
@@ -637,7 +625,7 @@ jobs:
 
   telemetry:
     name: "📈 Telemetry"
-    needs: [changes, lint-python, lint-dockerfile, code-quality, dead-code, todo-tracker, license-check, commit-lint, security, test-matrix, property-tests, mutation, frontend, coverage, test-results, docker-build, verify-staging, require-staging-green, verify-prod, load-test, pr-summary]
+    needs: [changes, lint-python, lint-dockerfile, code-quality, dead-code, todo-tracker, license-check, commit-lint, security, test-matrix, property-tests, mutation, frontend, coverage, test-results, docker-build, verify-staging, require-staging-green, verify-prod, load-test, pr-summary, dast]
     if: ${{ always() }}
     runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 5
@@ -665,6 +653,7 @@ jobs:
             echo "| frontend | ${{ needs.frontend.result }} |"
             echo "| verify-staging | ${{ needs.verify-staging.result }} |"
             echo "| verify-prod | ${{ needs.verify-prod.result }} |"
+            echo "| dast | ${{ needs.dast.result }} |"
             echo "| **wall-clock** | **${DUR}s** |"
           } >> "$GITHUB_STEP_SUMMARY"
 
