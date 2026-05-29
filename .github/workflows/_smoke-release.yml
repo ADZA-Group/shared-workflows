@@ -1,0 +1,23 @@
+name: "🧪 Smoke — Release (lint only)"
+# NOTE: full runtime test not possible without an actual tag push context.
+# This workflow validates YAML + actionlint only. Runtime = tagging v1.2.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint-check:
+    name: "🔍 Lint reusable-release.yml"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - name: Confirm release workflow is actionlint-clean
+        run: |
+          curl -sSfL https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz \
+            | tar xz -C /usr/local/bin actionlint
+          actionlint .github/workflows/reusable-release.yml
+          echo "✅ reusable-release.yml is actionlint-clean"

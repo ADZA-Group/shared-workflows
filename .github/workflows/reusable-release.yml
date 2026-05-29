@@ -1,0 +1,64 @@
+# ═══════════════════════════════════════════════════════════════
+# Reusable Release Workflow — ADZA-Group
+# Creates a GitHub Release with auto-generated notes on tag push.
+# Trigger: tag push (caller workflow listens for refs/tags/*).
+# ═══════════════════════════════════════════════════════════════
+
+name: "🚀 Release"
+
+on:
+  workflow_call:
+    inputs:
+      runner-label:
+        required: false
+        type: string
+        default: '["ubuntu-latest"]'
+      draft:
+        required: false
+        type: boolean
+        default: false
+      prerelease:
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      RELEASE_TOKEN:
+        required: false
+        description: "PAT with contents:write (falls back to GITHUB_TOKEN)"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: "🚀 Create Release"
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          fetch-depth: 0
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if [ -z "$TAG" ]; then
+            echo "::error::no tag found in GITHUB_REF_NAME — this workflow must be triggered by a tag push"
+            exit 1
+          fi
+          DRAFT_FLAG=""
+          PRERELEASE_FLAG=""
+          [ "${{ inputs.draft }}" = "true" ] && DRAFT_FLAG="--draft"
+          [ "${{ inputs.prerelease }}" = "true" ] && PRERELEASE_FLAG="--prerelease"
+          gh release create "$TAG" \
+            --generate-notes \
+            --title "$TAG" \
+            $DRAFT_FLAG \
+            $PRERELEASE_FLAG \
+            --verify-tag
+          echo "✅ Release ${TAG} created"
+          echo "## 🚀 Release" >> "$GITHUB_STEP_SUMMARY"
+          echo "Tag: \`${TAG}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "[View release](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${TAG})" >> "$GITHUB_STEP_SUMMARY"
