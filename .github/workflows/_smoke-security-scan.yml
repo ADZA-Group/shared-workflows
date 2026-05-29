@@ -1,0 +1,22 @@
+# Manual smoke for reusable-security-scan. Runnable only AFTER dev is pushed
+# (the reusable references composites at adza-group/shared-workflows/...@dev,
+# which must resolve remotely). Validates wiring + composite resolution, not
+# deep app findings (use a real app caller in Phase 4 for that).
+name: "🧪 Smoke — Security Scan"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  security:
+    uses: ./.github/workflows/reusable-security-scan.yml
+    with:
+      runner-label: '["ubuntu-latest"]'   # validate on ubuntu (bypasses LXC-104 block)
+      run-dependency-review: false   # needs a pull_request event
+      run-pip-audit: false           # shared-workflows has no requirements.txt
+      run-codeql: false              # finicky on a non-app repo; validate via real app in P4
+    secrets: inherit

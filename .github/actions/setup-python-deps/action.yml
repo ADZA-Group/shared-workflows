@@ -1,0 +1,91 @@
+# System Python + per-job venv + cached deps.
+# Debian-13 self-hosted runners ship NO actions/setup-python binaries, and 5+
+# test jobs share one runner (concurrent /usr/local site-packages corruption).
+# Solution: use system python3, isolate each job in $RUNNER_TEMP venv, export to PATH.
+name: "Setup Python Deps"
+description: "System python3 + isolated per-job venv + cached pip deps (Debian-13 safe)"
+
+inputs:
+  install-requirements:
+    description: "Install requirements.txt if present"
+    required: false
+    default: "true"
+  install-system-deps:
+    description: "Install tesseract + poppler (PDF/OCR apps)"
+    required: false
+    default: "false"
+  install-coverage:
+    description: "Install pytest-cov + coverage + pytest-timeout"
+    required: false
+    default: "false"
+  extra-packages:
+    description: "Extra pip packages (space-separated)"
+    required: false
+    default: ""
+  cache-key-suffix:
+    description: "Namespaces the pip cache + venv per consumer (e.g. lint, pytest-auth)"
+    required: false
+    default: "default"
+
+runs:
+  using: composite
+  steps:
+    - name: Verify system Python
+      shell: bash
+      run: |
+        if ! command -v python3 >/dev/null 2>&1; then
+          echo "::error::python3 not found on runner"; exit 1
+        fi
+        echo "Using $(python3 --version) at $(command -v python3)"
+
+    - name: Ensure pip + venv modules
+      shell: bash
+      run: |
+        if ! python3 -m venv --help >/dev/null 2>&1 || ! python3 -m pip --version >/dev/null 2>&1; then
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-venv python3-pip
+        fi
+
+    - name: System dependencies (tesseract/poppler)
+      if: inputs.install-system-deps == 'true'
+      shell: bash
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq tesseract-ocr tesseract-ocr-fra tesseract-ocr-deu poppler-utils
+
+    - name: Cache pip downloads
+      uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57  # v4.2.0
+      with:
+        path: ~/.cache/pip
+        key: pip-${{ runner.os }}-sys-${{ inputs.cache-key-suffix }}-${{ hashFiles('requirements.txt') }}
+        restore-keys: |
+          pip-${{ runner.os }}-sys-${{ inputs.cache-key-suffix }}-
+          pip-${{ runner.os }}-sys-
+
+    - name: Create per-job venv and put it on PATH
+      shell: bash
+      run: |
+        VENV="$RUNNER_TEMP/venv-${{ inputs.cache-key-suffix }}"
+        python3 -m venv "$VENV"
+        echo "$VENV/bin" >> "$GITHUB_PATH"
+        "$VENV/bin/pip" install --upgrade pip --retries 3 --timeout 60
+
+    - name: Install requirements
+      if: inputs.install-requirements == 'true'
+      shell: bash
+      run: |
+        if [ -f requirements.txt ]; then
+          pip install --retries 3 --timeout 60 -r requirements.txt
+        else
+          echo "::notice::no requirements.txt — skipping"
+        fi
+
+    - name: Install coverage tooling
+      if: inputs.install-coverage == 'true'
+      shell: bash
+      run: pip install --retries 3 --timeout 60 pytest-cov "coverage[toml]" pytest-timeout
+
+    - name: Install extra packages
+      if: inputs.extra-packages != ''
+      shell: bash
+      run: pip install --retries 3 --timeout 60 ${{ inputs.extra-packages }}

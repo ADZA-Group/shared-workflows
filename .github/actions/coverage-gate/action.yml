@@ -1,0 +1,59 @@
+# Download every covdata-* artifact, coverage combine into a true union, gate on threshold.
+# Replaces the legacy max()-line-rate heuristic that under-reported union coverage.
+name: "Coverage gate"
+description: "Combine per-shard coverage data, enforce a union-coverage threshold"
+
+inputs:
+  threshold:
+    description: "Minimum total coverage percent"
+    required: false
+    default: "50"
+  blocking:
+    description: "Fail the job when below threshold (false => warn only)"
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Download all shard coverage data
+      uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
+      with:
+        pattern: covdata-*
+        path: .covdata
+        merge-multiple: true
+
+    - name: Combine + report + gate
+      shell: bash
+      run: |
+        shopt -s dotglob
+        if ! ls .covdata/.coverage.* >/dev/null 2>&1; then
+          echo "::error::no coverage data files found (covdata-* artifacts missing)"; exit 1
+        fi
+        cp .covdata/.coverage.* .
+        if [ ! -f .coveragerc ]; then
+          printf '[run]\nrelative_files = true\n' > .coveragerc
+        fi
+        export COVERAGE_RCFILE=.coveragerc
+        coverage combine
+        coverage xml -o coverage.xml
+        TOTAL=$(coverage report --format=total 2>/dev/null || true)
+        if ! [[ "$TOTAL" =~ ^[0-9]+$ ]]; then
+          TOTAL=$(coverage report | tail -1 | grep -oE '[0-9]+%' | tr -d '%' || true)
+        fi
+        if ! [[ "$TOTAL" =~ ^[0-9]+$ ]]; then
+          echo "::error::could not determine coverage total"; exit 1
+        fi
+        echo "## 📊 Coverage" >> "$GITHUB_STEP_SUMMARY"
+        echo "| Metric | Value |" >> "$GITHUB_STEP_SUMMARY"
+        echo "|--------|-------|" >> "$GITHUB_STEP_SUMMARY"
+        echo "| Union coverage | **${TOTAL}%** |" >> "$GITHUB_STEP_SUMMARY"
+        echo "| Threshold | ${{ inputs.threshold }}% |" >> "$GITHUB_STEP_SUMMARY"
+        coverage report >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+        if [ "$TOTAL" -lt "${{ inputs.threshold }}" ]; then
+          if [ "${{ inputs.blocking }}" = "true" ]; then
+            echo "::error::coverage ${TOTAL}% < ${{ inputs.threshold }}%"; exit 1
+          else
+            echo "::warning::coverage ${TOTAL}% < ${{ inputs.threshold }}% (advisory)"
+          fi
+        fi

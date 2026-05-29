@@ -1,0 +1,155 @@
+# ═══════════════════════════════════════════════════════════════
+# Reusable Frontend Lane — ADZA-Group
+# eslint + tsc + (prettier) + vitest + vite build + bundle-size gate.
+# Node toolchain — independent of the Python composites. Defaults to ubuntu-hosted.
+# Install: npm ci when a lockfile exists, else npm install (+warning).
+#
+# Usage:
+#   uses: adza-group/shared-workflows/.github/workflows/reusable-frontend.yml@v1
+#   with: { frontend-dir: frontend }
+# ═══════════════════════════════════════════════════════════════
+
+name: "🎨 Frontend"
+
+on:
+  workflow_call:
+    inputs:
+      frontend-dir:
+        required: false
+        type: string
+        default: "frontend"
+      node-version:
+        required: false
+        type: string
+        default: "20"
+      runner-label:
+        required: false
+        type: string
+        default: '["ubuntu-latest"]'
+      run-lint:
+        required: false
+        type: boolean
+        default: true
+      run-typecheck:
+        required: false
+        type: boolean
+        default: true
+      run-format-check:
+        required: false
+        type: boolean
+        default: false
+      run-test:
+        required: false
+        type: boolean
+        default: true
+      run-build:
+        required: false
+        type: boolean
+        default: true
+      lint-script:
+        required: false
+        type: string
+        default: "lint"
+      typecheck-script:
+        required: false
+        type: string
+        default: "typecheck"
+      format-script:
+        required: false
+        type: string
+        default: "format:check"
+      test-script:
+        required: false
+        type: string
+        default: "test"
+      build-script:
+        required: false
+        type: string
+        default: "build"
+      build-output-dir:
+        required: false
+        type: string
+        default: "dist"
+      bundle-size-limit-kb:
+        required: false
+        type: number
+        default: 0
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    name: "🎨 Frontend Lane"
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: ${{ inputs.frontend-dir }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.frontend-dir }}/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            echo "::warning::no package-lock.json — using 'npm install' (non-reproducible); commit a lockfile"
+            npm install
+          fi
+
+      - name: Lint
+        if: ${{ inputs.run-lint }}
+        env:
+          SCRIPT: ${{ inputs.lint-script }}
+        run: npm run "$SCRIPT"
+
+      - name: Typecheck
+        if: ${{ inputs.run-typecheck }}
+        env:
+          SCRIPT: ${{ inputs.typecheck-script }}
+        run: npm run "$SCRIPT"
+
+      - name: Format check
+        if: ${{ inputs.run-format-check }}
+        continue-on-error: ${{ !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
+        env:
+          SCRIPT: ${{ inputs.format-script }}
+        run: npm run "$SCRIPT"
+
+      - name: Test
+        if: ${{ inputs.run-test }}
+        env:
+          SCRIPT: ${{ inputs.test-script }}
+        run: npm run "$SCRIPT"
+
+      - name: Build
+        if: ${{ inputs.run-build }}
+        env:
+          SCRIPT: ${{ inputs.build-script }}
+        run: npm run "$SCRIPT"
+
+      - name: Bundle size gate
+        if: ${{ inputs.run-build && inputs.bundle-size-limit-kb > 0 }}
+        env:
+          OUT: ${{ inputs.build-output-dir }}
+          LIMIT: ${{ inputs.bundle-size-limit-kb }}
+        run: |
+          if [ ! -d "$OUT" ]; then echo "::error::build output dir '$OUT' not found"; exit 1; fi
+          TOTAL_KB=$(du -sk "$OUT" | cut -f1)
+          {
+            echo "## 🎨 Frontend bundle"
+            echo "| Metric | Value |"
+            echo "|--------|-------|"
+            echo "| Build output | **${TOTAL_KB} KB** |"
+            echo "| Limit | ${LIMIT} KB |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$TOTAL_KB" -gt "$LIMIT" ]; then
+            echo "::error::bundle ${TOTAL_KB} KB > ${LIMIT} KB"; exit 1
+          fi

@@ -1,0 +1,25 @@
+# Manual smoke for reusable-docker-build. Runnable AFTER dev is pushed.
+# push=false → exercises build + size-gate + Trivy + SBOM only (no GHCR/sign).
+name: "🧪 Smoke — Docker Build"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write       # reusable-docker-build's job declares these unconditionally,
+  id-token: write        # so the caller must grant them even when push=false
+  attestations: write    # (GitHub fails the run at startup if the callee exceeds the caller)
+
+jobs:
+  build:
+    uses: ./.github/workflows/reusable-docker-build.yml
+    with:
+      runner-label: '["ubuntu-latest"]'   # validate on ubuntu (bypasses LXC-104 block)
+      image-name: ghcr.io/adza-group/smoke-fixture
+      context: tests/fixtures/docker
+      dockerfile: tests/fixtures/docker/Dockerfile
+      push: false
+      image-size-limit-mb: 600
+      smoke-command: 'docker run --rm "$IMAGE"'
+    secrets: inherit
