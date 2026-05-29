@@ -1,7 +1,7 @@
 # CLAUDE.md — `shared-workflows` (ADZA-Group Unified CI)
 
 > **Für Claude (neue Session):** Dies ist der Wiederaufnahme-Handoff für die Unified-CI-Initiative.
-> Stand **2026-05-28**, branch `dev` @ `58f92f7` (gepusht, 41 commits). Lies das hier zuerst.
+> Stand **2026-05-29**, branch `dev` @ HEAD (gepusht, feature-complete v1.2). Lies das hier zuerst.
 > Globale Arbeitsregeln: `~/.claude/CLAUDE.md`. Detail-Memory: `~/.claude/projects/.../memory/project_unified_ci.md`.
 
 ---
@@ -33,21 +33,16 @@ Dispatch hängt — ubuntu-hosted umgeht das und beweist die Logik end-to-end):
 | **`reusable-ci.yml` Orchestrator (FULL chain, alle ~17 Jobs inkl. postgres+redis-Matrix)** | ✅ grün (ubuntu) |
 | `reusable-load-test` (k6 p95/error-gate) | gebaut, NICHT validiert (braucht Live-Ziel) |
 | `reusable-notify` / `-monitoring-dashboard` / `-pipeline-analytics` / `-weekly-cleanup` | vorbestehend |
+| **Cycle B — ALL new reusables** (`reusable-dast`, `reusable-mutation`, `reusable-release`, `reusable-security-weekly`) + Lighthouse in `reusable-frontend` | ✅ grün (ubuntu) |
 
 2 Code-Reviews (opus) + 6+ echte Bugs gefangen & gefixt (Permissions-Eskalation,
 coverage-false-green, opa-rego-cross-fire, eslint-parser, fehlende checkouts, conftest-import).
 
 ## ❌ Was OFFEN ist (Wiederaufnahme-Punkte)
 
-1. **Self-hosted (Debian-13) Validierung + P4 App-Rollout** — die echten Apps laufen auf
-   den **LXC-104 Runnern, deren Dispatch noch kaputt ist** (siehe GOTCHA #4). ZUERST fixen,
-   dann self-hosted-Smokes grün + Apps migrieren. ubuntu hat die Logik bewiesen; OS-Delta klein.
-2. **P3b Orchestrator-Tail** — deploy-staging/verify-staging/require-staging-green/verify-prod
-   (+rollback), notify-Verdrahtung, pr-summary, volle Lint-Suite, property-tests. Buildbar, aber
-   nur gegen Live-Staging validierbar.
-3. **Neue Reusables** noch offen: lighthouse, `reusable-dast`, `reusable-mutation`, `reusable-release`.
-4. **P4 Migration** der 4 Apps zu Thin-Callern (Configs in Spec §8). **Rechnungsapp: `deploy-prod: false`**
-   (Prod-LXC-103-Freeze). **MitarbeiterApp:** braucht committetes `frontend/package-lock.json` (npm ci).
+1. **P4 App-Rollout (FootballApp → RecyclageApp → MitarbeiterApp → Rechnungsapp)** — Thin-Caller-Migration. Braucht zuerst LXC-104 Runner-Dispatch-Fix (GOTCHA #4).
+2. **LXC-104 Self-Hosted Runner Re-Registrierung** — Voll-Re-Registrierung (`config.sh remove` + neu). SSH: `ssh root@192.168.1.20` → `pct exec 104 -- ...`.
+3. **`reusable-release.yml` Runtime-Test** — Erster echter Tag-Push wird v1.2 (oder später) sein. Validierung deferred.
 
 ---
 
