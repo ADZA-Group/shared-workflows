@@ -74,6 +74,16 @@ on:
         required: false
         type: number
         default: 0
+      lighthouse-url:
+        required: false
+        type: string
+        default: ""
+        description: "URL for Lighthouse CI (empty = skip)"
+      lighthouse-budget-performance:
+        required: false
+        type: number
+        default: 80
+        description: "Minimum Lighthouse performance score (0-100)"
 
 permissions:
   contents: read
@@ -153,3 +163,23 @@ jobs:
           if [ "$TOTAL_KB" -gt "$LIMIT" ]; then
             echo "::error::bundle ${TOTAL_KB} KB > ${LIMIT} KB"; exit 1
           fi
+
+      - name: Lighthouse CI
+        if: ${{ inputs.run-build && inputs.lighthouse-url != '' }}
+        env:
+          LHCI_URL: ${{ inputs.lighthouse-url }}
+          LHCI_BUDGET: ${{ inputs.lighthouse-budget-performance }}
+        run: |
+          npm install -g @lhci/cli@0.14.x --silent
+          lhci collect --url="$LHCI_URL" --numberOfRuns=1 --settings.chromeFlags="--no-sandbox"
+          SCORE=$(lhci assert --preset=lighthouse:recommended 2>/dev/null \
+            | grep -oE 'performance: [0-9]+' | grep -oE '[0-9]+' || echo 0)
+          {
+            echo "## 🔦 Lighthouse"
+            echo "| Metric | Value |"
+            echo "|--------|-------|"
+            echo "| Performance | ${SCORE} |"
+            echo "| Budget | ${LHCI_BUDGET} |"
+            echo "| URL | ${LHCI_URL} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+        continue-on-error: ${{ !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
