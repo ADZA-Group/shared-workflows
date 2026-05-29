@@ -432,10 +432,12 @@ jobs:
 
   docker-build:
     name: "🐳 Build"
-    needs: [changes, lint-python, test-matrix]
+    needs: [changes, lint-python, lint-dockerfile, license-check, test-matrix]
     if: >-
       ${{ always() &&
       needs.lint-python.result != 'failure' &&
+      needs.lint-dockerfile.result != 'failure' &&
+      needs.license-check.result != 'failure' &&
       (needs.test-matrix.result == 'success' || needs.test-matrix.result == 'skipped') &&
       (needs.changes.outputs.any_code == 'true' || needs.changes.outputs.docker == 'true' || needs.changes.outputs.ci == 'true') }}
     permissions:
