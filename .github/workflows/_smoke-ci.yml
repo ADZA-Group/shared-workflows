@@ -4,6 +4,8 @@ name: "🧪 Smoke — CI Orchestrator"
 
 on:
   workflow_dispatch:
+  push:
+    branches: [dev]
 
 permissions:
   contents: read
@@ -18,6 +20,7 @@ jobs:
     uses: ./.github/workflows/reusable-ci.yml
     with:
       app-name: smoke-fixture
+      runner-label: '["ubuntu-latest"]'   # validate the whole orchestrator on ubuntu (bypasses LXC-104 block)
       coverage-threshold: 0
       test-shards: '[{"name":"fixture","paths":"tests/fixtures/app","cov":"tests/fixtures/app"}]'
       test-env: "{}"
