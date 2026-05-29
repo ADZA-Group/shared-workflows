@@ -85,6 +85,47 @@ on:
         required: false
         type: string
         default: "."
+      has-frontend:
+        required: false
+        type: boolean
+        default: false
+        description: "Enable frontend lane (reusable-frontend.yml)"
+      frontend-dir:
+        required: false
+        type: string
+        default: "frontend"
+      enable-property-tests:
+        required: false
+        type: boolean
+        default: true
+      enable-mutation:
+        required: false
+        type: boolean
+        default: true
+      enable-load-test:
+        required: false
+        type: boolean
+        default: false
+      staging-url:
+        required: false
+        type: string
+        default: ""
+        description: "Staging health-check URL (empty = skip deploy-tail)"
+      prod-url:
+        required: false
+        type: string
+        default: ""
+        description: "Prod health-check URL (empty = skip verify-prod)"
+      deploy-prod:
+        required: false
+        type: boolean
+        default: true
+        description: "Master switch for prod push+verify (set false to disable)"
+      enable-dast:
+        required: false
+        type: boolean
+        default: false
+        description: "Enable DAST scan after staging verify (wired in Cycle B)"
 
 permissions:
   contents: read
