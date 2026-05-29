@@ -35,6 +35,10 @@ on:
         required: false
         type: string
         default: ""
+      runner-label:
+        required: false
+        type: string
+        default: '["self-hosted", "linux", "proxmox"]'
     secrets:
       DISCORD_WEBHOOK:
         required: false
@@ -48,7 +52,7 @@ on:
 jobs:
   notify:
     name: "🚨 Alert"
-    runs-on: [self-hosted, linux, proxmox]
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
     steps:
       - name: Build alert context
         id: ctx
