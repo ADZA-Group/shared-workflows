@@ -4,6 +4,8 @@ name: "🧪 Smoke — Docker Build"
 
 on:
   workflow_dispatch:
+  push:
+    branches: [dev]
 
 permissions:
   contents: read
@@ -15,6 +17,7 @@ jobs:
   build:
     uses: ./.github/workflows/reusable-docker-build.yml
     with:
+      runner-label: '["ubuntu-latest"]'   # validate on ubuntu (bypasses LXC-104 block)
       image-name: ghcr.io/adza-group/smoke-fixture
       context: tests/fixtures/docker
       dockerfile: tests/fixtures/docker/Dockerfile
