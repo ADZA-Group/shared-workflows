@@ -85,6 +85,47 @@ on:
         required: false
         type: string
         default: "."
+      has-frontend:
+        required: false
+        type: boolean
+        default: false
+        description: "Enable frontend lane (reusable-frontend.yml)"
+      frontend-dir:
+        required: false
+        type: string
+        default: "frontend"
+      enable-property-tests:
+        required: false
+        type: boolean
+        default: true
+      enable-mutation:
+        required: false
+        type: boolean
+        default: true
+      enable-load-test:
+        required: false
+        type: boolean
+        default: false
+      staging-url:
+        required: false
+        type: string
+        default: ""
+        description: "Staging health-check URL (empty = skip deploy-tail)"
+      prod-url:
+        required: false
+        type: string
+        default: ""
+        description: "Prod health-check URL (empty = skip verify-prod)"
+      deploy-prod:
+        required: false
+        type: boolean
+        default: true
+        description: "Master switch for prod push+verify (set false to disable)"
+      enable-dast:
+        required: false
+        type: boolean
+        default: false
+        description: "Enable DAST scan after staging verify (wired in Cycle B)"
 
 permissions:
   contents: read
@@ -139,6 +180,146 @@ jobs:
         run: |
           ruff check . --output-format=github
           ruff format --check --diff .
+
+  lint-dockerfile:
+    name: "🐳 Lint Dockerfile"
+    needs: changes
+    if: ${{ needs.changes.outputs.docker == 'true' || needs.changes.outputs.ci == 'true' }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 5
+    continue-on-error: ${{ !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - name: Install hadolint v2.12.0
+        run: |
+          curl -sSfL https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-x86_64 \
+            -o /usr/local/bin/hadolint
+          chmod +x /usr/local/bin/hadolint
+      - name: Lint
+        run: |
+          [ -f "${{ inputs.dockerfile }}" ] || { echo "::notice::no Dockerfile at ${{ inputs.dockerfile }} — skipping"; exit 0; }
+          hadolint "${{ inputs.dockerfile }}" --format tty
+
+  code-quality:
+    name: "📊 Code Quality"
+    needs: changes
+    if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true' }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@dev
+        with:
+          install-requirements: "false"
+          extra-packages: "radon==6.*"
+          cache-key-suffix: radon
+      - name: Radon complexity
+        run: |
+          {
+            echo "## 📊 Code Quality (radon)"
+            echo '```'
+            radon cc . -a -nb --exclude "tests,__pycache__,.venv" 2>/dev/null || echo "(no Python source found)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          radon cc . -a -nb --exclude "tests,__pycache__,.venv" 2>/dev/null || true
+
+  dead-code:
+    name: "💀 Dead Code"
+    needs: changes
+    if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true' }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@dev
+        with:
+          install-requirements: "false"
+          extra-packages: "vulture==2.*"
+          cache-key-suffix: vulture
+      - name: Vulture scan
+        run: |
+          {
+            echo "## 💀 Dead Code (vulture)"
+            echo '```'
+            vulture . --min-confidence 80 --exclude tests,__pycache__,.venv 2>/dev/null || echo "(no issues or no source)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          vulture . --min-confidence 80 --exclude tests,__pycache__,.venv 2>/dev/null || true
+
+  todo-tracker:
+    name: "📌 TODOs"
+    needs: changes
+    if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true' }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - name: Count open TODOs
+        run: |
+          COUNT=$(grep -rn --include="*.py" "TODO\|FIXME\|HACK\|XXX" . 2>/dev/null | grep -v ".venv" | wc -l || echo 0)
+          {
+            echo "## 📌 TODO Tracker"
+            echo "| Metric | Count |"
+            echo "|--------|-------|"
+            echo "| Open TODO/FIXME/HACK/XXX | ${COUNT} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$COUNT" -gt 0 ]; then
+            {
+              echo ""
+              echo "<details><summary>Show items</summary>"
+              echo ""
+              echo '```'
+              grep -rn --include="*.py" "TODO\|FIXME\|HACK\|XXX" . 2>/dev/null | grep -v ".venv" | head -50
+              echo '```'
+              echo "</details>"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  license-check:
+    name: "⚖️ Licenses"
+    needs: changes
+    if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true' }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 10
+    continue-on-error: ${{ !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@dev
+        with:
+          install-requirements: "true"
+          extra-packages: "pip-licenses==4.*"
+          cache-key-suffix: licenses
+      - name: Check for copyleft
+        run: |
+          COPYLEFT="GPL-2.0-only,GPL-2.0-or-later,GPL-3.0-only,GPL-3.0-or-later,LGPL-2.1-only,LGPL-2.1-or-later,LGPL-3.0-only,LGPL-3.0-or-later,AGPL-3.0-only,AGPL-3.0-or-later"
+          pip-licenses --format=markdown >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          pip-licenses --fail-on="$COPYLEFT" 2>&1 || {
+            echo "::error::Copyleft license detected in dependencies"
+            exit 1
+          }
+
+  commit-lint:
+    name: "📝 Commit Lint"
+    needs: changes
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 5
+    continue-on-error: true
+    steps:
+      - name: Check PR title (Conventional Commits)
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          PATTERN='^(feat|fix|docs|chore|ci|test|refactor|style|perf|revert)(\(.+\))?: .+'
+          if ! echo "$PR_TITLE" | grep -Eq "$PATTERN"; then
+            echo "::warning::PR title does not follow Conventional Commits: '$PR_TITLE'"
+            echo "Expected format: <type>(scope): description"
+            echo "Valid types: feat fix docs chore ci test refactor style perf revert"
+          else
+            echo "✅ PR title follows Conventional Commits: '$PR_TITLE'"
+          fi
 
   security:
     name: "🔐 Security"
@@ -249,12 +430,105 @@ jobs:
           junit_files: "junit/junit-*.xml"
           comment_mode: "off"
 
+  property-tests:
+    name: "🔬 Property Tests"
+    needs: changes
+    if: ${{ inputs.enable-property-tests && (needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true') }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@dev
+        with:
+          install-requirements: "true"
+          extra-packages: "hypothesis==6.*"
+          cache-key-suffix: hypothesis
+      - name: Run Hypothesis tests
+        run: |
+          COUNT=$(pytest tests/ -m "hypothesis" --collect-only -q 2>/dev/null | grep -oE '[0-9]+ test' | cut -d' ' -f1 || echo 0)
+          if [ "${COUNT:-0}" -eq 0 ]; then
+            echo "::notice::no @hypothesis.given tests found — skipping"
+            exit 0
+          fi
+          pytest tests/ -m "hypothesis" --hypothesis-seed=0 --timeout=60 -p no:cacheprovider
+
+  mutation:
+    name: "🧬 Mutation (incremental)"
+    needs: [changes, test-matrix]
+    if: ${{ inputs.enable-mutation && needs.test-matrix.result == 'success' && needs.changes.outputs.python == 'true' }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          fetch-depth: 0
+      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@dev
+        with:
+          install-requirements: "true"
+          extra-packages: "mutmut==2.*"
+          cache-key-suffix: mutmut
+      - name: Get changed non-test Python files
+        id: changed
+        run: |
+          FILES=$(git diff --name-only origin/main...HEAD -- '*.py' 2>/dev/null \
+            | grep -v '/test' | grep -v '^tests/' | head -20 \
+            | tr '\n' ' ' | xargs || echo "")
+          echo "files=${FILES}" >> "$GITHUB_OUTPUT"
+      - name: Run mutmut incremental
+        run: |
+          FILES="${{ steps.changed.outputs.files }}"
+          if [ -z "${FILES}" ]; then
+            echo "::notice::no non-test Python changes vs main — skipping mutation"
+            exit 0
+          fi
+          mutmut run --paths-to-mutate "${FILES}" || true
+          SURVIVED=$(mutmut results 2>/dev/null | grep -c "survived" || echo 0)
+          {
+            echo "## 🧬 Mutation Testing (incremental)"
+            echo "| Metric | Value |"
+            echo "|--------|-------|"
+            echo "| Surviving mutants | ${SURVIVED} |"
+            echo "| Mutated files | \`${FILES}\` |"
+            echo "| Mode | incremental (non-test changes vs main) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  frontend:
+    name: "🎨 Frontend"
+    needs: changes
+    if: ${{ inputs.has-frontend && (needs.changes.outputs.frontend == 'true' || needs.changes.outputs.ci == 'true') }}
+    permissions:
+      contents: read
+    uses: adza-group/shared-workflows/.github/workflows/reusable-frontend.yml@dev
+    with:
+      frontend-dir: ${{ inputs.frontend-dir }}
+      runner-label: '["ubuntu-latest"]'
+    secrets: inherit
+
+  load-test:
+    name: "📈 Load Test"
+    needs: [verify-staging]
+    if: >-
+      ${{ always() && inputs.enable-load-test && inputs.staging-url != '' &&
+      needs.verify-staging.result == 'success' }}
+    permissions:
+      contents: read
+    uses: adza-group/shared-workflows/.github/workflows/reusable-load-test.yml@dev
+    with:
+      target-url: ${{ inputs.staging-url }}
+      blocking: false
+      runner-label: ${{ inputs.runner-label }}
+    secrets: inherit
+
   docker-build:
     name: "🐳 Build"
-    needs: [changes, lint-python, test-matrix]
+    needs: [changes, lint-python, lint-dockerfile, license-check, test-matrix]
     if: >-
       ${{ always() &&
       needs.lint-python.result != 'failure' &&
+      needs.lint-dockerfile.result != 'failure' &&
+      needs.license-check.result != 'failure' &&
       (needs.test-matrix.result == 'success' || needs.test-matrix.result == 'skipped') &&
       (needs.changes.outputs.any_code == 'true' || needs.changes.outputs.docker == 'true' || needs.changes.outputs.ci == 'true') }}
     permissions:
@@ -274,9 +548,96 @@ jobs:
       runner-label: ${{ inputs.runner-label }}
     secrets: inherit
 
+  verify-staging:
+    name: "🔍 Verify Staging"
+    needs: [docker-build]
+    if: >-
+      ${{ always() && inputs.staging-url != '' && inputs.deploy-prod &&
+      needs.docker-build.result == 'success' &&
+      github.event_name == 'push' }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - uses: adza-group/shared-workflows/.github/actions/health-check@dev
+        with:
+          url: ${{ inputs.staging-url }}
+          max-retries: "40"
+          retry-delay: "30"
+          check-security-headers: "true"
+
+  require-staging-green:
+    name: "🚦 Require Staging Green"
+    needs: [verify-staging]
+    if: >-
+      ${{ always() && inputs.staging-url != '' &&
+      github.ref == 'refs/heads/main' }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 5
+    steps:
+      - name: Gate on staging health
+        run: |
+          if [ "${{ needs.verify-staging.result }}" != "success" ]; then
+            echo "::error::staging not green (result: ${{ needs.verify-staging.result }}) — blocking main push"
+            exit 1
+          fi
+          echo "✅ staging verified green — prod push allowed"
+
+  verify-prod:
+    name: "✅ Verify Prod"
+    needs: [docker-build, require-staging-green]
+    if: >-
+      ${{ always() && inputs.prod-url != '' && inputs.deploy-prod &&
+      needs.docker-build.result == 'success' &&
+      github.ref == 'refs/heads/main' }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - uses: adza-group/shared-workflows/.github/actions/health-check@dev
+        id: prod-check
+        continue-on-error: true
+        with:
+          url: ${{ inputs.prod-url }}
+          max-retries: "40"
+          retry-delay: "30"
+
+      - name: Auto-rollback on failure
+        if: steps.prod-check.outcome == 'failure'
+        run: |
+          IMAGE="${{ inputs.image-name != '' && inputs.image-name || format('ghcr.io/adza-group/{0}', inputs.app-name) }}"
+          echo "::warning::prod unhealthy — attempting rollback :previous → :latest"
+          if docker buildx imagetools inspect "${IMAGE}:previous" >/dev/null 2>&1; then
+            docker buildx imagetools create --tag "${IMAGE}:latest" "${IMAGE}:previous"
+            echo "::warning::rollback applied — watchtower will re-deploy :previous on next poll"
+          else
+            echo "::warning::no :previous tag found — rollback skipped"
+          fi
+
+      - name: Open incident issue on failure
+        if: steps.prod-check.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create \
+            --title "🚨 Prod verify failed — ${{ inputs.app-name }} @ ${GITHUB_SHA:0:7}" \
+            --body "## Prod health check failed
+          App: \`${{ inputs.app-name }}\`
+          URL: ${{ inputs.prod-url }}
+          SHA: ${{ github.sha }}
+          Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --label "incident,production" || true
+
+      - name: Fail on prod unhealthy
+        if: steps.prod-check.outcome == 'failure'
+        run: exit 1
+
   telemetry:
     name: "📈 Telemetry"
-    needs: [changes, lint-python, security, test-matrix, coverage, test-results, docker-build]
+    needs: [changes, lint-python, lint-dockerfile, code-quality, dead-code, todo-tracker, license-check, commit-lint, security, test-matrix, property-tests, mutation, frontend, coverage, test-results, docker-build, verify-staging, require-staging-green, verify-prod, load-test, pr-summary]
     if: ${{ always() }}
     runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 5
@@ -296,5 +657,69 @@ jobs:
             echo "| coverage | ${{ needs.coverage.result }} |"
             echo "| test-results | ${{ needs.test-results.result }} |"
             echo "| docker-build | ${{ needs.docker-build.result }} |"
+            echo "| lint-dockerfile | ${{ needs.lint-dockerfile.result }} |"
+            echo "| code-quality | ${{ needs.code-quality.result }} |"
+            echo "| dead-code | ${{ needs.dead-code.result }} |"
+            echo "| property-tests | ${{ needs.property-tests.result }} |"
+            echo "| mutation | ${{ needs.mutation.result }} |"
+            echo "| frontend | ${{ needs.frontend.result }} |"
+            echo "| verify-staging | ${{ needs.verify-staging.result }} |"
+            echo "| verify-prod | ${{ needs.verify-prod.result }} |"
             echo "| **wall-clock** | **${DUR}s** |"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  pr-summary:
+    name: "📝 PR Summary"
+    needs: [lint-python, security, test-matrix, coverage, docker-build]
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Post/update sticky CI summary comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          BODY="## 🚀 CI Summary — \`${{ inputs.app-name }}\`
+          | Job | Result |
+          |-----|--------|
+          | lint | ${{ needs.lint-python.result }} |
+          | security | ${{ needs.security.result }} |
+          | tests | ${{ needs.test-matrix.result }} |
+          | coverage | ${{ needs.coverage.result }} |
+          | docker | ${{ needs.docker-build.result }} |
+
+          [View run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          COMMENT_ID=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            --jq '[.[] | select(.body | startswith("## 🚀 CI Summary"))] | .[0].id // empty' 2>/dev/null || echo "")
+          if [ -n "$COMMENT_ID" ]; then
+            gh api "repos/${REPO}/issues/comments/${COMMENT_ID}" -X PATCH -f body="$BODY" >/dev/null
+          else
+            gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" -f body="$BODY" >/dev/null
+          fi
+
+  notify:
+    name: "🚨 Notify"
+    needs: [lint-python, security, test-matrix, coverage, docker-build, telemetry]
+    if: >-
+      ${{ always() && (
+        needs.lint-python.result == 'failure' ||
+        needs.test-matrix.result == 'failure' ||
+        needs.coverage.result == 'failure' ||
+        needs.docker-build.result == 'failure'
+      ) }}
+    permissions:
+      contents: read
+    uses: adza-group/shared-workflows/.github/workflows/reusable-notify.yml@dev
+    with:
+      app-name: ${{ inputs.app-name }}
+      status: failure
+      branch: ${{ github.ref_name }}
+      sha: ${{ github.sha }}
+      run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      runner-label: ${{ inputs.runner-label }}
+    secrets: inherit

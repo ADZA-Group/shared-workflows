@@ -52,6 +52,8 @@ permissions:               # ⚠️ REQUIRED — see note below
   attestations: write
   security-events: write
   checks: write
+  issues: write         # verify-prod opens incident issues on failure
+  pull-requests: write  # pr-summary posts sticky CI comment on PRs
 jobs:
   ci:
     uses: adza-group/shared-workflows/.github/workflows/reusable-ci.yml@v1
@@ -73,7 +75,7 @@ A **called** reusable workflow's `GITHUB_TOKEN` can only be **equal to or more r
 than the caller's** — if the callee requests more, GitHub fails the run at **`startup_failure`**
 ("workflow file issue"). `reusable-ci` delegates to nested jobs that need elevated scopes
 (`docker-build` → `packages`/`id-token`/`attestations: write`; `security` → `security-events: write`;
-`test-results` → `checks: write`). Therefore the **caller MUST grant the `permissions:` block above**
+`test-results` → `checks: write`; `verify-prod` → `issues: write` for incident issues; `pr-summary` → `pull-requests: write` for sticky PR comments). Therefore the **caller MUST grant the `permissions:` block above**
 (workflow-level or on the `ci` job). Omitting it is the #1 adoption pitfall.
 
 ### Key inputs (`reusable-ci.yml`)

@@ -12,6 +12,8 @@ permissions:
   attestations: write
   security-events: write
   checks: write
+  issues: write        # verify-prod incident issues
+  pull-requests: write # pr-summary sticky comment
 
 jobs:
   ci:
@@ -26,4 +28,12 @@ jobs:
       dockerfile: tests/fixtures/docker/Dockerfile
       docker-context: tests/fixtures/docker
       image-name: ghcr.io/adza-group/smoke-fixture
+      has-frontend: false
+      staging-url: ""
+      prod-url: ""
+      deploy-prod: false
+      enable-property-tests: true
+      enable-mutation: true
+      enable-load-test: false
+      enable-dast: false
     secrets: inherit
