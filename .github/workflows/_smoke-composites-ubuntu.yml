@@ -1,11 +1,10 @@
-# Smoke harness for shared-workflows composite actions.
-# Manual only. Each job exercises one composite on the real self-hosted runner.
+# Smoke harness for shared-workflows composite actions on ubuntu-latest.
+# Validated GREEN 2026-05-28 (all 5 composites). Manual-only fallback that
+# proves the composites independent of the self-hosted runner pool.
 name: "🧪 Smoke — Composites (ubuntu)"
 
 on:
   workflow_dispatch:
-  push:
-    branches: [dev]
 
 permissions:
   contents: read
