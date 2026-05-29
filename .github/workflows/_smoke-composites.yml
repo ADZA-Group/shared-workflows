@@ -39,6 +39,7 @@ jobs:
           mkdir -p app tests
           printf 'def add(a, b):\n    return a + b\n' > app/calc.py
           printf 'from app.calc import add\n\ndef test_add():\n    assert add(2, 3) == 5\n' > tests/test_calc.py
+          : > conftest.py
       - uses: ./.github/actions/setup-python-deps
         with: { install-coverage: "true", cache-key-suffix: shard-smoke }
       - uses: ./.github/actions/run-pytest-shard
@@ -77,6 +78,7 @@ jobs:
     runs-on: [self-hosted, linux, proxmox]
     timeout-minutes: 5
     steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
       - name: Fixture HTTP server with /health
         run: |
           mkdir -p _fix
@@ -105,6 +107,7 @@ jobs:
     runs-on: [self-hosted, linux, proxmox]
     timeout-minutes: 5
     steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
       - name: Fixture compliant Dockerfile
         run: |
           cat > Dockerfile <<'DOCKER'
