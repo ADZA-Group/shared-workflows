@@ -1,0 +1,144 @@
+# Smoke harness for shared-workflows composite actions.
+# Manual only. Each job exercises one composite on the real self-hosted runner.
+name: "🧪 Smoke — Composites (ubuntu)"
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [dev]
+
+permissions:
+  contents: read
+
+jobs:
+  setup-python-deps:
+    name: "setup-python-deps"
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - name: Fixture requirements.txt
+        run: printf 'flask==3.*\n' > requirements.txt
+      - uses: ./.github/actions/setup-python-deps
+        with:
+          install-coverage: "true"
+          cache-key-suffix: smoke
+      - name: Assert venv on PATH + deps importable
+        run: |
+          which python | grep -q "venv-smoke" || { echo "::error::venv not on PATH"; exit 1; }
+          python -c "import flask; print('flask', flask.__version__)"
+          python -c "import pytest_cov, coverage; print('coverage tools ok')"
+
+  run-pytest-shard:
+    name: "run-pytest-shard"
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - name: Fixture project (pytest + a trivial test)
+        run: |
+          printf 'pytest==8.*\n' > requirements.txt
+          mkdir -p app tests
+          printf 'def add(a, b):\n    return a + b\n' > app/calc.py
+          printf 'from app.calc import add\n\ndef test_add():\n    assert add(2, 3) == 5\n' > tests/test_calc.py
+      - uses: ./.github/actions/setup-python-deps
+        with: { install-coverage: "true", cache-key-suffix: shard-smoke }
+      - uses: ./.github/actions/run-pytest-shard
+        with:
+          shard-name: smoke
+          test-paths: tests/
+          coverage-source: app
+      - name: Assert artifacts produced
+        run: |
+          test -f ".coverage.smoke" || { echo "::error::no .coverage.smoke"; exit 1; }
+          test -f "junit-smoke.xml" || { echo "::error::no junit-smoke.xml"; exit 1; }
+
+  coverage-gate:
+    name: "coverage-gate"
+    runs-on: ubuntu-latest
+    needs: run-pytest-shard
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - name: Fixture (coverage tool + the source the data file references)
+        run: |
+          printf 'coverage[toml]\n' > requirements.txt
+          mkdir -p app
+          printf 'def add(a, b):\n    return a + b\n' > app/calc.py
+      - uses: ./.github/actions/setup-python-deps
+        with: { cache-key-suffix: covgate-smoke }
+      - uses: ./.github/actions/coverage-gate
+        with:
+          threshold: "0"
+          blocking: "true"
+      - name: Assert combined report exists
+        run: test -f coverage.xml || { echo "::error::no combined coverage.xml"; exit 1; }
+
+  start-app:
+    name: "start-app"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fixture HTTP server with /health
+        run: |
+          mkdir -p _fix
+          cat > _fix/server.py <<'PY'
+          from http.server import BaseHTTPRequestHandler, HTTPServer
+          class H(BaseHTTPRequestHandler):
+              def do_GET(self):
+                  self.send_response(200 if self.path == "/health" else 404)
+                  self.end_headers(); self.wfile.write(b"ok")
+              def log_message(self, *a): pass
+          HTTPServer(("127.0.0.1", 5000), H).serve_forever()
+          PY
+      - id: app
+        uses: ./.github/actions/start-app
+        with:
+          boot-command: "python3 _fix/server.py"
+          health-url: "http://127.0.0.1:5000/health"
+      - name: Assert pid output + reachable, then stop
+        run: |
+          test -n "${{ steps.app.outputs.app-pid }}" || { echo "::error::no app-pid"; exit 1; }
+          curl -fsS http://127.0.0.1:5000/health
+          kill "${{ steps.app.outputs.app-pid }}"
+
+  opa-policy:
+    name: "opa-policy"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fixture compliant Dockerfile
+        run: |
+          cat > Dockerfile <<'DOCKER'
+          FROM python:3.11-slim@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          RUN useradd -m app
+          USER app
+          HEALTHCHECK CMD curl -f http://localhost:5000/health || exit 1
+          CMD ["python", "app.py"]
+          DOCKER
+      - name: Fixture compliant docker-compose.yml
+        run: |
+          cat > docker-compose.yml <<'COMPOSE'
+          services:
+            web:
+              image: ghcr.io/adza-group/example:1.0.0
+              restart: unless-stopped
+          COMPOSE
+      - uses: ./.github/actions/opa-policy
+        with:
+          dockerfile: Dockerfile
+          blocking: "true"
+      - name: Assert a non-compliant Dockerfile is rejected
+        run: |
+          printf 'FROM python:latest\nCMD ["python","app.py"]\n' > Bad.dockerfile
+          if conftest test Bad.dockerfile --policy .github/actions/opa-policy/policy --parser dockerfile 2>/dev/null; then
+            echo "::error::non-compliant Dockerfile was NOT rejected"; exit 1
+          fi
+          echo "✅ non-compliant Dockerfile correctly rejected"
+      - name: Assert a non-compliant compose is rejected
+        run: |
+          printf 'services:\n  web:\n    image: nginx:latest\n' > bad-compose.yml
+          if conftest test bad-compose.yml --policy .github/actions/opa-policy/policy 2>/dev/null; then
+            echo "::error::non-compliant compose was NOT rejected"; exit 1
+          fi
+          echo "✅ non-compliant compose correctly rejected"
