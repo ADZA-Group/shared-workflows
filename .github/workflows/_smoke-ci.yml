@@ -14,6 +14,8 @@ permissions:
   attestations: write
   security-events: write
   checks: write
+  issues: write        # verify-prod incident issues
+  pull-requests: write # pr-summary sticky comment
 
 jobs:
   ci:
