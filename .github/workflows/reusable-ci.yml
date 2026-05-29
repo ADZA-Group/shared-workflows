@@ -430,6 +430,70 @@ jobs:
           junit_files: "junit/junit-*.xml"
           comment_mode: "off"
 
+  property-tests:
+    name: "🔬 Property Tests"
+    needs: changes
+    if: ${{ inputs.enable-property-tests && (needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true') }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@dev
+        with:
+          install-requirements: "true"
+          extra-packages: "hypothesis==6.*"
+          cache-key-suffix: hypothesis
+      - name: Run Hypothesis tests
+        run: |
+          COUNT=$(pytest tests/ -m "hypothesis" --collect-only -q 2>/dev/null | grep -oE '[0-9]+ test' | cut -d' ' -f1 || echo 0)
+          if [ "${COUNT:-0}" -eq 0 ]; then
+            echo "::notice::no @hypothesis.given tests found — skipping"
+            exit 0
+          fi
+          pytest tests/ -m "hypothesis" --hypothesis-seed=0 --timeout=60 -p no:cacheprovider
+
+  mutation:
+    name: "🧬 Mutation (incremental)"
+    needs: [changes, test-matrix]
+    if: ${{ inputs.enable-mutation && needs.test-matrix.result == 'success' && needs.changes.outputs.python == 'true' }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          fetch-depth: 0
+      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@dev
+        with:
+          install-requirements: "true"
+          extra-packages: "mutmut==2.*"
+          cache-key-suffix: mutmut
+      - name: Get changed non-test Python files
+        id: changed
+        run: |
+          FILES=$(git diff --name-only origin/main...HEAD -- '*.py' 2>/dev/null \
+            | grep -v '/test' | grep -v '^tests/' | head -20 \
+            | tr '\n' ' ' | xargs || echo "")
+          echo "files=${FILES}" >> "$GITHUB_OUTPUT"
+      - name: Run mutmut incremental
+        run: |
+          FILES="${{ steps.changed.outputs.files }}"
+          if [ -z "${FILES}" ]; then
+            echo "::notice::no non-test Python changes vs main — skipping mutation"
+            exit 0
+          fi
+          mutmut run --paths-to-mutate "${FILES}" || true
+          SURVIVED=$(mutmut results 2>/dev/null | grep -c "survived" || echo 0)
+          {
+            echo "## 🧬 Mutation Testing (incremental)"
+            echo "| Metric | Value |"
+            echo "|--------|-------|"
+            echo "| Surviving mutants | ${SURVIVED} |"
+            echo "| Mutated files | \`${FILES}\` |"
+            echo "| Mode | incremental (non-test changes vs main) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   docker-build:
     name: "🐳 Build"
     needs: [changes, lint-python, lint-dockerfile, license-check, test-matrix]
