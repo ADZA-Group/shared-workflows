@@ -15,3 +15,4 @@ jobs:
     with:
       frontend-dir: tests/fixtures/frontend
       bundle-size-limit-kb: 2048
+      lighthouse-url: ""

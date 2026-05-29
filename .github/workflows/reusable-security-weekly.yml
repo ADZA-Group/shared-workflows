@@ -1,0 +1,173 @@
+# ═══════════════════════════════════════════════════════════════
+# Reusable Security Weekly Sweep — ADZA-Group
+# Deeper than per-PR scan. All jobs advisory. Scheduled by apps.
+# Jobs: pip-audit · Trivy (fs+image) · OSV-Scanner · Grype · TruffleHog · Nuclei
+# ═══════════════════════════════════════════════════════════════
+
+name: "🔐 Security Weekly"
+
+on:
+  workflow_call:
+    inputs:
+      image-name:
+        required: false
+        type: string
+        default: ""
+        description: "Full image name for Trivy image scan (empty = skip)"
+      prod-url:
+        required: false
+        type: string
+        default: ""
+        description: "Prod URL for nuclei scan (empty = skip)"
+      runner-label:
+        required: false
+        type: string
+        default: '["self-hosted", "linux", "proxmox"]'
+
+permissions:
+  contents: read
+
+jobs:
+  # ── pip-audit ─────────────────────────────────────────────────
+  pip-audit:
+    name: "📦 pip-audit (full)"
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@dev
+        with:
+          install-requirements: "false"
+          extra-packages: "pip-audit==2.*"
+          cache-key-suffix: pip-audit-weekly
+      - name: pip-audit all severities
+        run: |
+          if [ ! -f requirements.txt ]; then echo "::notice::no requirements.txt"; exit 0; fi
+          set -o pipefail
+          pip-audit -r requirements.txt --desc --format markdown 2>&1 | tee /tmp/audit.md || true
+          {
+            echo "## 📦 pip-audit (weekly)"
+            cat /tmp/audit.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ── Trivy (fs + optional image) ───────────────────────────────
+  trivy-weekly:
+    name: "🔍 Trivy weekly"
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - name: Trivy filesystem (all severities)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          severity: CRITICAL,HIGH,MEDIUM,LOW
+          exit-code: 0
+      - name: Trivy image scan
+        if: ${{ inputs.image-name != '' }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          image-ref: ${{ inputs.image-name }}:latest
+          format: table
+          severity: CRITICAL,HIGH,MEDIUM,LOW
+          exit-code: 0
+
+  # ── OSV-Scanner ───────────────────────────────────────────────
+  osv-scanner:
+    name: "🔎 OSV Scanner"
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - name: Install + run osv-scanner
+        run: |
+          curl -sSfL https://github.com/google/osv-scanner/releases/download/v1.9.1/osv-scanner_linux_amd64 \
+            -o /usr/local/bin/osv-scanner
+          chmod +x /usr/local/bin/osv-scanner
+          osv-scanner --recursive . 2>&1 | tee /tmp/osv.txt || true
+          {
+            echo "## 🔎 OSV Scanner"
+            echo '```'
+            cat /tmp/osv.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ── Grype ─────────────────────────────────────────────────────
+  grype:
+    name: "🔐 Grype"
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - name: Install + run Grype
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+          grype dir:. --output table 2>&1 | tee /tmp/grype.txt || true
+          {
+            echo "## 🔐 Grype"
+            echo '```'
+            head -50 /tmp/grype.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ── TruffleHog ────────────────────────────────────────────────
+  trufflehog:
+    name: "🐷 TruffleHog"
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          fetch-depth: 0
+      - name: Install + run TruffleHog
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh \
+            | sh -s -- -b /usr/local/bin
+          trufflehog git "file://$(pwd)" --only-verified --json 2>/dev/null | tee /tmp/truffle.json || true
+          COUNT=$(wc -l < /tmp/truffle.json 2>/dev/null || echo 0)
+          {
+            echo "## 🐷 TruffleHog"
+            echo "Verified secrets found: ${COUNT}"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$COUNT" -gt 0 ]; then
+            echo "::warning::TruffleHog found ${COUNT} verified secret(s) — review immediately"
+          fi
+
+  # ── Nuclei (prod-url only) ────────────────────────────────────
+  nuclei:
+    name: "🔬 Nuclei"
+    if: ${{ inputs.prod-url != '' }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - name: Run Nuclei CVE + tech templates
+        run: |
+          docker pull projectdiscovery/nuclei:latest -q 2>/dev/null || true
+          docker run --rm projectdiscovery/nuclei:latest \
+            -u "${{ inputs.prod-url }}" \
+            -t cves/ -t technologies/ \
+            -severity critical,high,medium \
+            -json -o /tmp/nuclei.json || true
+          COUNT=$(wc -l < /tmp/nuclei.json 2>/dev/null || echo 0)
+          HIGH=$(grep -c '"severity":"high"' /tmp/nuclei.json 2>/dev/null || echo 0)
+          CRIT=$(grep -c '"severity":"critical"' /tmp/nuclei.json 2>/dev/null || echo 0)
+          {
+            echo "## 🔬 Nuclei"
+            echo "Target: \`${{ inputs.prod-url }}\`"
+            echo "| Severity | Count |"
+            echo "|----------|-------|"
+            echo "| Critical | ${CRIT} |"
+            echo "| High | ${HIGH} |"
+            echo "| Total | ${COUNT} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$COUNT" -gt 0 ]; then
+            echo "::warning::Nuclei found ${COUNT} finding(s) — review report (advisory)"
+          fi

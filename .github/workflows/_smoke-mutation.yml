@@ -1,0 +1,14 @@
+name: "🧪 Smoke — Mutation"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mutation:
+    uses: ./.github/workflows/reusable-mutation.yml
+    with:
+      mode: full
+      runner-label: '["ubuntu-latest"]'

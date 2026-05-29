@@ -1,0 +1,101 @@
+# ═══════════════════════════════════════════════════════════════
+# Reusable DAST Workflow — ADZA-Group
+# OWASP ZAP baseline scan against a live URL. Always ubuntu-latest.
+# Dual-gate: advisory on PR/dev, blocking=true for main/tags.
+# ═══════════════════════════════════════════════════════════════
+
+name: "🔓 DAST"
+
+on:
+  workflow_call:
+    inputs:
+      target-url:
+        required: true
+        type: string
+        description: "URL to scan (must be reachable from ubuntu-hosted runner)"
+      scan-type:
+        required: false
+        type: string
+        default: "baseline"
+        description: "ZAP scan type: baseline | full"
+      blocking:
+        required: false
+        type: boolean
+        default: false
+        description: "Fail the job on FAIL-level alerts (false = warn only)"
+      runner-label:
+        required: false
+        type: string
+        default: '["ubuntu-latest"]'
+
+permissions:
+  contents: read
+
+jobs:
+  dast:
+    name: "🔓 ZAP DAST (${{ inputs.scan-type }})"
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Run ZAP ${{ inputs.scan-type }} scan
+        run: |
+          SCAN_CMD="zap-${{ inputs.scan-type }}.py"
+          docker run --rm \
+            -v "${{ github.workspace }}:/zap/wrk:rw" \
+            ghcr.io/zaproxy/zaproxy:stable \
+            "$SCAN_CMD" \
+            -t "${{ inputs.target-url }}" \
+            -J zap-report.json \
+            -r zap-report.html \
+            -I || true   # ZAP exits non-zero on alerts — we gate separately
+
+      - name: Parse report + enforce gate
+        run: |
+          if [ ! -f zap-report.json ]; then
+            echo "::error::ZAP report not found — scan may have failed to start"
+            exit 1
+          fi
+          FAIL=$(python3 -c "
+          import json
+          d = json.load(open('zap-report.json'))
+          alerts = d.get('site', [{}])[0].get('alerts', []) if d.get('site') else []
+          fail = sum(1 for a in alerts if a.get('riskcode') == '3')
+          high = sum(1 for a in alerts if a.get('riskcode') == '2')
+          med  = sum(1 for a in alerts if a.get('riskcode') == '1')
+          print(f'{fail}:{high}:{med}')
+          " 2>/dev/null || echo "0:0:0")
+          FAIL_COUNT=$(echo "$FAIL" | cut -d: -f1)
+          HIGH_COUNT=$(echo "$FAIL" | cut -d: -f2)
+          MED_COUNT=$(echo "$FAIL" | cut -d: -f3)
+          {
+            echo "## 🔓 DAST — ZAP ${{ inputs.scan-type }}"
+            echo "Target: \`${{ inputs.target-url }}\`"
+            echo ""
+            echo "| Risk | Count |"
+            echo "|------|-------|"
+            echo "| FAIL (Critical) | ${FAIL_COUNT} |"
+            echo "| HIGH | ${HIGH_COUNT} |"
+            echo "| MEDIUM | ${MED_COUNT} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$FAIL_COUNT" -gt 0 ]; then
+            MSG="ZAP found ${FAIL_COUNT} FAIL-level alert(s)"
+            if [ "${{ inputs.blocking }}" = "true" ]; then
+              echo "::error::${MSG}"; exit 1
+            else
+              echo "::warning::${MSG} (advisory)"
+            fi
+          else
+            echo "✅ ZAP: no FAIL-level alerts"
+          fi
+
+      - name: Upload ZAP report
+        if: always()
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08  # v4.6.0
+        with:
+          name: zap-report
+          path: |
+            zap-report.json
+            zap-report.html
+          retention-days: 30
