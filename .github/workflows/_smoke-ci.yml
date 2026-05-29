@@ -4,6 +4,8 @@ name: "🧪 Smoke — CI Orchestrator"
 
 on:
   workflow_dispatch:
+  push:
+    branches: [dev]
 
 permissions:
   contents: read
@@ -26,4 +28,12 @@ jobs:
       dockerfile: tests/fixtures/docker/Dockerfile
       docker-context: tests/fixtures/docker
       image-name: ghcr.io/adza-group/smoke-fixture
+      has-frontend: false
+      staging-url: ""
+      prod-url: ""
+      deploy-prod: false
+      enable-property-tests: true
+      enable-mutation: true
+      enable-load-test: false
+      enable-dast: false
     secrets: inherit
