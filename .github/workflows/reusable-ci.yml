@@ -637,7 +637,7 @@ jobs:
 
   telemetry:
     name: "📈 Telemetry"
-    needs: [changes, lint-python, security, test-matrix, coverage, test-results, docker-build]
+    needs: [changes, lint-python, lint-dockerfile, code-quality, dead-code, todo-tracker, license-check, commit-lint, security, test-matrix, property-tests, mutation, frontend, coverage, test-results, docker-build, verify-staging, require-staging-green, verify-prod, load-test, pr-summary]
     if: ${{ always() }}
     runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 5
@@ -657,5 +657,69 @@ jobs:
             echo "| coverage | ${{ needs.coverage.result }} |"
             echo "| test-results | ${{ needs.test-results.result }} |"
             echo "| docker-build | ${{ needs.docker-build.result }} |"
+            echo "| lint-dockerfile | ${{ needs.lint-dockerfile.result }} |"
+            echo "| code-quality | ${{ needs.code-quality.result }} |"
+            echo "| dead-code | ${{ needs.dead-code.result }} |"
+            echo "| property-tests | ${{ needs.property-tests.result }} |"
+            echo "| mutation | ${{ needs.mutation.result }} |"
+            echo "| frontend | ${{ needs.frontend.result }} |"
+            echo "| verify-staging | ${{ needs.verify-staging.result }} |"
+            echo "| verify-prod | ${{ needs.verify-prod.result }} |"
             echo "| **wall-clock** | **${DUR}s** |"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  pr-summary:
+    name: "📝 PR Summary"
+    needs: [lint-python, security, test-matrix, coverage, docker-build]
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Post/update sticky CI summary comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          BODY="## 🚀 CI Summary — \`${{ inputs.app-name }}\`
+          | Job | Result |
+          |-----|--------|
+          | lint | ${{ needs.lint-python.result }} |
+          | security | ${{ needs.security.result }} |
+          | tests | ${{ needs.test-matrix.result }} |
+          | coverage | ${{ needs.coverage.result }} |
+          | docker | ${{ needs.docker-build.result }} |
+
+          [View run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          COMMENT_ID=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            --jq '[.[] | select(.body | startswith("## 🚀 CI Summary"))] | .[0].id // empty' 2>/dev/null || echo "")
+          if [ -n "$COMMENT_ID" ]; then
+            gh api "repos/${REPO}/issues/comments/${COMMENT_ID}" -X PATCH -f body="$BODY" >/dev/null
+          else
+            gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" -f body="$BODY" >/dev/null
+          fi
+
+  notify:
+    name: "🚨 Notify"
+    needs: [lint-python, security, test-matrix, coverage, docker-build, telemetry]
+    if: >-
+      ${{ always() && (
+        needs.lint-python.result == 'failure' ||
+        needs.test-matrix.result == 'failure' ||
+        needs.coverage.result == 'failure' ||
+        needs.docker-build.result == 'failure'
+      ) }}
+    permissions:
+      contents: read
+    uses: adza-group/shared-workflows/.github/workflows/reusable-notify.yml@dev
+    with:
+      app-name: ${{ inputs.app-name }}
+      status: failure
+      branch: ${{ github.ref_name }}
+      sha: ${{ github.sha }}
+      run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      runner-label: ${{ inputs.runner-label }}
+    secrets: inherit
