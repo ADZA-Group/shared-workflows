@@ -494,6 +494,33 @@ jobs:
             echo "| Mode | incremental (non-test changes vs main) |"
           } >> "$GITHUB_STEP_SUMMARY"
 
+  frontend:
+    name: "🎨 Frontend"
+    needs: changes
+    if: ${{ inputs.has-frontend && (needs.changes.outputs.frontend == 'true' || needs.changes.outputs.ci == 'true') }}
+    permissions:
+      contents: read
+    uses: adza-group/shared-workflows/.github/workflows/reusable-frontend.yml@dev
+    with:
+      frontend-dir: ${{ inputs.frontend-dir }}
+      runner-label: '["ubuntu-latest"]'
+    secrets: inherit
+
+  load-test:
+    name: "📈 Load Test"
+    needs: [verify-staging]
+    if: >-
+      ${{ always() && inputs.enable-load-test && inputs.staging-url != '' &&
+      needs.verify-staging.result == 'success' }}
+    permissions:
+      contents: read
+    uses: adza-group/shared-workflows/.github/workflows/reusable-load-test.yml@dev
+    with:
+      target-url: ${{ inputs.staging-url }}
+      blocking: false
+      runner-label: ${{ inputs.runner-label }}
+    secrets: inherit
+
   docker-build:
     name: "🐳 Build"
     needs: [changes, lint-python, lint-dockerfile, license-check, test-matrix]
