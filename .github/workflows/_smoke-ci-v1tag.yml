@@ -1,8 +1,8 @@
-# Validates the HERMETIC release: calls reusable-ci.yml@v1.3.0 exactly like an app
-# does (pinned tag, not local ./). Proves the @v1.3.0 graph resolves + starts (no
-# startup_failure) — confirming the @dev→@v1.3.0 hermetic fix. ubuntu (bypass flaky
+# Validates the HERMETIC release: calls reusable-ci.yml@v1.3.1 exactly like an app
+# does (pinned tag, not local ./). Proves the @v1.3.1 graph resolves + starts (no
+# startup_failure) — confirming the @dev→@v1.3.1 hermetic fix. ubuntu (bypass flaky
 # self-hosted). push:[dev] trigger is TEMPORARY (revert after green).
-name: "🧪 Smoke — CI @v1.3.0 (hermetic)"
+name: "🧪 Smoke — CI @v1.3.1 (hermetic)"
 
 on:
   workflow_dispatch:
@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   ci:
-    uses: adza-group/shared-workflows/.github/workflows/reusable-ci.yml@v1.3.0
+    uses: adza-group/shared-workflows/.github/workflows/reusable-ci.yml@v1.3.1
     with:
       app-name: smoke-v1tag
       runner-label: '["ubuntu-latest"]'
