@@ -232,6 +232,12 @@ jobs:
       - uses: github/codeql-action/analyze@v3
         with:
           category: "/language:${{ matrix.language }}"
+          # upload:false — a private repo without GitHub Advanced Security cannot persist SARIF to
+          # code-scanning ("Resource not accessible by integration"), which left this job red-but-
+          # tolerated. Skipping the upload makes the analyze step (and the job) GREEN while CodeQL
+          # still runs the full analysis (findings visible in the job log). Flip to true once GHAS
+          # is purchased to surface results in the Security tab.
+          upload: false
 
   # ── Dependency Review (PR-only) ───────────────────────────────
   dependency-review:

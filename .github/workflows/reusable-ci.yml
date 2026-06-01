@@ -208,7 +208,10 @@ jobs:
       - name: Lint
         run: |
           [ -f "${{ inputs.dockerfile }}" ] || { echo "::notice::no Dockerfile at ${{ inputs.dockerfile }} — skipping"; exit 0; }
-          hadolint "${{ inputs.dockerfile }}" --format tty
+          # --failure-threshold error: DL3008 (pin apt versions) & friends are *warnings*. They are
+          # printed (informational) but must not fail the job — pinning apt versions contradicts the
+          # ADZA "always newest stable" stack-policy. Real errors (DLxxxx error-level) still fail.
+          hadolint "${{ inputs.dockerfile }}" --format tty --failure-threshold error
 
   code-quality:
     name: "📊 Code Quality"
