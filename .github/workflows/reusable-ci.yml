@@ -582,7 +582,7 @@ jobs:
     name: "🚦 Require Staging Green"
     needs: [verify-staging]
     if: >-
-      ${{ always() && inputs.staging-url != '' &&
+      ${{ always() && inputs.staging-url != '' && inputs.deploy-prod &&
       github.ref == 'refs/heads/main' }}
     runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 5
