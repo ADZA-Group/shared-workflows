@@ -53,6 +53,11 @@ on:
         required: false
         type: string
         default: "16-alpine"
+      enable-redis:
+        required: false
+        type: boolean
+        default: false
+        description: "Reserved — a redis service is always provided to test jobs; accepted for caller compatibility"
       install-system-deps:
         required: false
         type: boolean
