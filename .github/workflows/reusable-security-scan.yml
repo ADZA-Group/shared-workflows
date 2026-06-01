@@ -212,6 +212,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
+      actions: read            # REQUIRED for private repos: analyze calls GET /actions/runs/{id}; without it →
+                               # "Resource not accessible by integration" → configuration error (github/codeql-action#2117)
       contents: read
       security-events: write
     # Always advisory: code-scanning result upload needs GitHub Advanced Security,

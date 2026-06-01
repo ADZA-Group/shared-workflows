@@ -181,7 +181,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1.3.1
+      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1
         with:
           install-requirements: "false"
           extra-packages: "ruff==0.*"
@@ -222,7 +222,7 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1.3.1
+      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1
         with:
           install-requirements: "false"
           extra-packages: "radon==6.*"
@@ -246,7 +246,7 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1.3.1
+      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1
         with:
           install-requirements: "false"
           extra-packages: "vulture==2.*"
@@ -299,7 +299,7 @@ jobs:
     continue-on-error: ${{ !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1.3.1
+      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1
         with:
           install-requirements: "true"
           extra-packages: "pip-licenses==4.*"
@@ -339,9 +339,10 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.any_code == 'true' || needs.changes.outputs.ci == 'true' }}
     permissions:
+      actions: read            # CodeQL on private repos calls GET /actions/runs/{id} → needs actions:read (github/codeql-action#2117)
       contents: read
       security-events: write   # CodeQL upload (capped by caller's grant)
-    uses: adza-group/shared-workflows/.github/workflows/reusable-security-scan.yml@v1.3.1
+    uses: adza-group/shared-workflows/.github/workflows/reusable-security-scan.yml@v1
     with:
       python-version: ${{ inputs.python-version }}
       runner-label: ${{ inputs.runner-label }}
@@ -405,13 +406,13 @@ jobs:
                         .replace('127.0.0.1:6379', f'127.0.0.1:{rd}'))
               print(f"{k}={v}")
           PY
-      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1.3.1
+      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1
         with:
           install-requirements: "true"
           install-system-deps: ${{ inputs.install-system-deps }}
           install-coverage: "true"
           cache-key-suffix: test-${{ matrix.shard.name }}
-      - uses: adza-group/shared-workflows/.github/actions/run-pytest-shard@v1.3.1
+      - uses: adza-group/shared-workflows/.github/actions/run-pytest-shard@v1
         with:
           shard-name: ${{ matrix.shard.name }}
           test-paths: ${{ matrix.shard.paths }}
@@ -426,12 +427,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1.3.1
+      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1
         with:
           install-requirements: "false"
           install-coverage: "true"
           cache-key-suffix: coverage
-      - uses: adza-group/shared-workflows/.github/actions/coverage-gate@v1.3.1
+      - uses: adza-group/shared-workflows/.github/actions/coverage-gate@v1
         with:
           threshold: ${{ inputs.coverage-threshold }}
           blocking: "true"
@@ -466,7 +467,7 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1.3.1
+      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1
         with:
           install-requirements: "true"
           extra-packages: "hypothesis==6.*"
@@ -486,7 +487,7 @@ jobs:
     if: ${{ inputs.enable-mutation && needs.test-matrix.result == 'success' && needs.changes.outputs.python == 'true' }}
     permissions:
       contents: read
-    uses: adza-group/shared-workflows/.github/workflows/reusable-mutation.yml@v1.3.1
+    uses: adza-group/shared-workflows/.github/workflows/reusable-mutation.yml@v1
     with:
       mode: incremental
       base-ref: main
@@ -499,7 +500,7 @@ jobs:
     if: ${{ inputs.has-frontend && (needs.changes.outputs.frontend == 'true' || needs.changes.outputs.ci == 'true') }}
     permissions:
       contents: read
-    uses: adza-group/shared-workflows/.github/workflows/reusable-frontend.yml@v1.3.1
+    uses: adza-group/shared-workflows/.github/workflows/reusable-frontend.yml@v1
     with:
       frontend-dir: ${{ inputs.frontend-dir }}
       runner-label: '["ubuntu-latest"]'
@@ -513,7 +514,7 @@ jobs:
       needs.verify-staging.result == 'success' }}
     permissions:
       contents: read
-    uses: adza-group/shared-workflows/.github/workflows/reusable-load-test.yml@v1.3.1
+    uses: adza-group/shared-workflows/.github/workflows/reusable-load-test.yml@v1
     with:
       target-url: ${{ inputs.staging-url }}
       blocking: false
@@ -528,7 +529,7 @@ jobs:
       needs.verify-staging.result == 'success' }}
     permissions:
       contents: read
-    uses: adza-group/shared-workflows/.github/workflows/reusable-dast.yml@v1.3.1
+    uses: adza-group/shared-workflows/.github/workflows/reusable-dast.yml@v1
     with:
       target-url: ${{ inputs.staging-url }}
       scan-type: baseline
@@ -551,7 +552,7 @@ jobs:
       packages: write       # GHCR push
       id-token: write        # cosign keyless OIDC
       attestations: write    # SLSA build provenance
-    uses: adza-group/shared-workflows/.github/workflows/reusable-docker-build.yml@v1.3.1
+    uses: adza-group/shared-workflows/.github/workflows/reusable-docker-build.yml@v1
     with:
       image-name: ${{ inputs.image-name != '' && inputs.image-name || format('ghcr.io/adza-group/{0}', inputs.app-name) }}
       push: ${{ inputs.enable-push && github.event_name == 'push' }}
@@ -574,7 +575,7 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-      - uses: adza-group/shared-workflows/.github/actions/health-check@v1.3.1
+      - uses: adza-group/shared-workflows/.github/actions/health-check@v1
         with:
           url: ${{ inputs.staging-url }}
           max-retries: "40"
@@ -612,7 +613,7 @@ jobs:
       issues: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-      - uses: adza-group/shared-workflows/.github/actions/health-check@v1.3.1
+      - uses: adza-group/shared-workflows/.github/actions/health-check@v1
         id: prod-check
         continue-on-error: true
         with:
@@ -730,7 +731,7 @@ jobs:
       ) }}
     permissions:
       contents: read
-    uses: adza-group/shared-workflows/.github/workflows/reusable-notify.yml@v1.3.1
+    uses: adza-group/shared-workflows/.github/workflows/reusable-notify.yml@v1
     with:
       app-name: ${{ inputs.app-name }}
       status: failure
