@@ -110,9 +110,9 @@ jobs:
         run: |
           bandit -r . --exclude "$BANDIT_EXCLUDE" \
             --skip B101,B104,B105,B106,B311,B603,B607 \
-            --severity-level high -ll -f json -o /tmp/bandit.json || true
+            --severity-level high -f json -o /tmp/bandit.json || true
           bandit -r . --exclude "$BANDIT_EXCLUDE" \
-            --skip B101,B104,B105,B106,B311,B603,B607 --severity-level high -ll
+            --skip B101,B104,B105,B106,B311,B603,B607 --severity-level high
       - name: Summary
         if: always()
         run: |
