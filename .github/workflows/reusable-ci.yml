@@ -576,11 +576,29 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
       - uses: adza-group/shared-workflows/.github/actions/health-check@v1
+        id: staging-check
+        continue-on-error: true
         with:
           url: ${{ inputs.staging-url }}
           max-retries: "40"
           retry-delay: "30"
           check-security-headers: "true"
+
+      - name: Auto-rollback on failure
+        if: steps.staging-check.outcome == 'failure'
+        run: |
+          IMAGE="${{ inputs.image-name != '' && inputs.image-name || format('ghcr.io/adza-group/{0}', inputs.app-name) }}"
+          echo "::warning::staging unhealthy — attempting rollback :staging-previous -> :staging"
+          if docker buildx imagetools inspect "${IMAGE}:staging-previous" >/dev/null 2>&1; then
+            docker buildx imagetools create --tag "${IMAGE}:staging" "${IMAGE}:staging-previous"
+            echo "::warning::rollback applied — watchtower will re-deploy :staging-previous on next poll"
+          else
+            echo "::warning::no :staging-previous tag found — rollback skipped"
+          fi
+
+      - name: Fail on staging unhealthy
+        if: steps.staging-check.outcome == 'failure'
+        run: exit 1
 
   require-staging-green:
     name: "🚦 Require Staging Green"
