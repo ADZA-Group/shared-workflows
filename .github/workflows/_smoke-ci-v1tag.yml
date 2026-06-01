@@ -6,8 +6,6 @@ name: "🧪 Smoke — CI @v1.3.0 (hermetic)"
 
 on:
   workflow_dispatch:
-  push:
-    branches: [dev]
 
 permissions:
   contents: read
