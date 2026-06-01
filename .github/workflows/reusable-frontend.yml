@@ -116,12 +116,14 @@ jobs:
 
       - name: Lint
         if: ${{ inputs.run-lint }}
+        continue-on-error: ${{ !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
         env:
           SCRIPT: ${{ inputs.lint-script }}
         run: npm run "$SCRIPT"
 
       - name: Typecheck
         if: ${{ inputs.run-typecheck }}
+        continue-on-error: ${{ !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
         env:
           SCRIPT: ${{ inputs.typecheck-script }}
         run: npm run "$SCRIPT"

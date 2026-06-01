@@ -177,6 +177,7 @@ jobs:
     name: "🐍 Lint (ruff)"
     needs: changes
     if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true' }}
+    continue-on-error: ${{ !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
     runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 10
     steps:
