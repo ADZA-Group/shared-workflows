@@ -1,14 +1,40 @@
 # CLAUDE.md — `shared-workflows` (ADZA-Group Unified CI)
 
 > **Für Claude (neue Session):** Dies ist der Wiederaufnahme-Handoff für die Unified-CI-Initiative.
-> Stand **2026-06-01**, branch `dev` (gepusht). **Released: floating `@v1` = `v1.3.2` — HERMETISCH + reif.** Lies das hier zuerst.
+> Stand **2026-06-01**, branch `dev` (gepusht). **Released: floating `@v1` = `v1.3.8` (commit `f2e4d4e`) — verifiziert via `git ls-remote`.** Lies das hier zuerst.
 > Globale Arbeitsregeln: `~/.claude/CLAUDE.md`. Detail-Memory: `~/.claude/projects/.../memory/project_unified_ci.md`.
 >
 > **TL;DR Endstand:** Die CI-Bibliothek ist FERTIG, hermetisch, released. Apps pinnen `@v1`.
 > Interne Refs der Reusables zeigen auf floating `@v1` (NICHT @dev/exact) → kein Drift, kein Re-Pin-Churn.
 > Lint-Gates (ruff/dockerfile/eslint/tsc) advisory auf PR/dev, hart auf main/tags; **Tests immer hart**.
-> **Rollout:** FootballApp ✅ grün. RecyclageApp/MitarbeiterApp/Rechnungsapp migriert, aber ihre
-> **Test-Suites scheitern am harten Test-Gate** (echte App-Test-Schulden, KEIN CI-Bug) → App-Sanierung pro Repo, offen.
+>
+> **🔴 ROOT-CAUSE-INCIDENT 2026-06-01 (`@v1`-Mispoint):** `@v1` zeigte real auf die **stale v1.3.1-Linie**
+> (`894dabb`→`8d08c4e`, NICHT auf der `dev`-Historie), während die Doku „v1.3.6" behauptete. Folge: ALLE
+> `@v1`-Apps liefen wochenlang auf **v1.3.1** — die v1.3.2–v1.3.6-Verbesserungen (Semgrep/pip-audit von
+> dual-gate → **immer advisory**) kamen NIE an → **`main` rot** (Semgrep/pip-audit blockten auf main).
+> **Fix:** `git tag -f v1 93c06b4` + `push -f` (verifiziert). **Lehre:** `@v1`-Ziel NIE aus Doku/Memory glauben
+> — immer `git ls-remote origin refs/tags/v1` + `git log -1 <sha>`. Force-Move nur nach `git log v1 --not dev` (Verlust-Check).
+>
+> **🔴 ROOT-CAUSE-INCIDENT 2026-06-01 (CodeQL „immer rot" — ZWEI Schichten):** v1.3.7 (`upload:false` +
+> hadolint `--failure-threshold error`) war die **falsche Ebene** + lief gar nicht. Echte Ursachen (via
+> systematic-debugging + Web-Verifikation gegen `github/codeql-action#2117`):
+> **(1) Orchestrator-Drift:** `reusable-ci.yml` pinnte ALLE 18 internen Refs auf `@v1.3.1` (stale), während
+> alle anderen Reusables längst `@v1` floateten → reusable-ci@v1 zog **security-scan@v1.3.1** → mein
+> `upload:false`-Edit (in security-scan@dev) **wurde nie ausgeführt**.
+> **(2) Fehlendes `actions: read`:** CodeQL ruft auf PRIVATEN Repos `GET /actions/runs/{id}` → ohne den Scope
+> `Resource not accessible by integration` → „configuration error". Pflicht-Scope laut codeql-action#2117
+> (NICHT GHAS — `advanced_security: null` auf allen Repos, daher bleibt `upload:false` korrekt).
+> **v1.3.8-Fix (verifiziert GRÜN auf RecyclageApp dev):** (a) reusable-ci interne Refs `@v1.3.1`→`@v1` (de-staled);
+> (b) `actions: read` durch die **3-Schicht-Kette** App-Caller → reusable-ci `security`-Job → `codeql`-Job;
+> (c) `upload:false` + hadolint-threshold bleiben (aus v1.3.7).
+> **🔑 LEHRE:** Wenn du eine genestete Reusable editierst, prüf IMMER die **Pins im Orchestrator** (`grep '@v1\.' reusable-ci.yml`)
+> — ein stale `@v1.3.x` heißt deine Edits an @v1/@dev laufen nicht. Permissions müssen durch JEDE Caller-Schicht (App→orchestrator-job→nested-job).
+> **Rollout (2026-06-01):** `actions: read` in alle 4 App-Caller (Pflicht-Scope, sonst greift v1.3.8 nicht).
+> **CodeQL verifiziert GRÜN** (lief, NICHT skipped): RecyclageApp dev+**main**, Rechnungsapp dev, MitarbeiterApp dev
+> (je py+js `success`). FootballApp dev queued (Caller gefixt, identische Config → erwartet grün, noch nicht empirisch bestätigt).
+> **Rechnungsapp/FootballApp/MitarbeiterApp `main`-Merge VERSCHOBEN** (User-Entscheidung 2026-06-01: kein zusätzlicher
+> Prod-Rebuild jetzt). Diff ist CI-only (build.yml `actions:read`, nicht im Image) → fließt risikolos beim nächsten
+> normalen dev→main-Flow auf `main`. RecyclageApp `main` ist bereits grün gemergt (`22261b7`).
 
 ---
 
