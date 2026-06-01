@@ -140,6 +140,9 @@ jobs:
     name: "🔍 Detect Changes"
     runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read   # dorny/paths-filter queries the API; without this → "Resource not accessible by integration"
     outputs:
       python: ${{ steps.filter.outputs.python }}
       docker: ${{ steps.filter.outputs.docker }}
