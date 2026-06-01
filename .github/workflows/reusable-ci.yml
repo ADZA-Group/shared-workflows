@@ -352,7 +352,7 @@ jobs:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: test
         ports:
-          - 5432:5432
+          - 5432
         options: >-
           --health-cmd "pg_isready -U postgres"
           --health-interval 5s
@@ -361,7 +361,7 @@ jobs:
       redis:
         image: redis:7-alpine
         ports:
-          - 6379:6379
+          - 6379
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 5s
@@ -372,10 +372,24 @@ jobs:
       - name: Load test env
         env:
           TEST_ENV: ${{ inputs.test-env }}
+          PG_PORT: ${{ job.services.postgres.ports['5432'] }}
+          REDIS_PORT: ${{ job.services.redis.ports['6379'] }}
         run: |
+          # Services use DYNAMIC host ports (ports: [5432]/[6379], not fixed 5432:5432).
+          # On self-hosted runners that share ONE Docker daemon, fixed ports collide
+          # when shards run concurrently (M4). We rewrite the well-known ports in any
+          # test-env value to the GHA-assigned ports. Transparent to apps, which keep
+          # writing localhost:5432 / localhost:6379 in their test-env.
           python3 - <<'PY' >> "$GITHUB_ENV"
           import json, os
+          pg = os.environ.get('PG_PORT') or '5432'
+          rd = os.environ.get('REDIS_PORT') or '6379'
           for k, v in json.loads(os.environ.get('TEST_ENV') or '{}').items():
+              if isinstance(v, str):
+                  v = (v.replace('localhost:5432', f'localhost:{pg}')
+                        .replace('127.0.0.1:5432', f'127.0.0.1:{pg}')
+                        .replace('localhost:6379', f'localhost:{rd}')
+                        .replace('127.0.0.1:6379', f'127.0.0.1:{rd}'))
               print(f"{k}={v}")
           PY
       - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@dev
