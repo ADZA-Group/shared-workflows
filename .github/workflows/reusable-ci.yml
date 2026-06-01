@@ -149,6 +149,8 @@ jobs:
       start_time: ${{ steps.t.outputs.epoch }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          fetch-depth: 0   # paths-filter diffs locally via git (avoids restricted compare API → "Resource not accessible")
       - id: t
         run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
       - id: filter
