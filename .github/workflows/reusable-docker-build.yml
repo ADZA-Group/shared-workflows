@@ -211,6 +211,17 @@ jobs:
             echo "::notice::no existing :latest to back up (first push)"
           fi
 
+      - name: "Backup :staging -> :staging-previous (dev only)"
+        if: ${{ inputs.push && github.ref == 'refs/heads/dev' }}
+        continue-on-error: true
+        run: |
+          if docker buildx imagetools inspect ${{ inputs.image-name }}:staging >/dev/null 2>&1; then
+            docker buildx imagetools create --tag ${{ inputs.image-name }}:staging-previous ${{ inputs.image-name }}:staging
+            echo "::notice::backed up :staging -> :staging-previous"
+          else
+            echo "::notice::no existing :staging to back up (first push)"
+          fi
+
       - name: Build + push (multi-arch)
         if: ${{ inputs.push }}
         id: build-push
