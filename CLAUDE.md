@@ -1,8 +1,14 @@
 # CLAUDE.md — `shared-workflows` (ADZA-Group Unified CI)
 
 > **Für Claude (neue Session):** Dies ist der Wiederaufnahme-Handoff für die Unified-CI-Initiative.
-> Stand **2026-05-29**, branch `dev` @ HEAD (gepusht, feature-complete v1.2). Lies das hier zuerst.
+> Stand **2026-06-01**, branch `dev` (gepusht). **Released: floating `@v1` = `v1.3.2` — HERMETISCH + reif.** Lies das hier zuerst.
 > Globale Arbeitsregeln: `~/.claude/CLAUDE.md`. Detail-Memory: `~/.claude/projects/.../memory/project_unified_ci.md`.
+>
+> **TL;DR Endstand:** Die CI-Bibliothek ist FERTIG, hermetisch, released. Apps pinnen `@v1`.
+> Interne Refs der Reusables zeigen auf floating `@v1` (NICHT @dev/exact) → kein Drift, kein Re-Pin-Churn.
+> Lint-Gates (ruff/dockerfile/eslint/tsc) advisory auf PR/dev, hart auf main/tags; **Tests immer hart**.
+> **Rollout:** FootballApp ✅ grün. RecyclageApp/MitarbeiterApp/Rechnungsapp migriert, aber ihre
+> **Test-Suites scheitern am harten Test-Gate** (echte App-Test-Schulden, KEIN CI-Bug) → App-Sanierung pro Repo, offen.
 
 ---
 
@@ -38,11 +44,13 @@ Dispatch hängt — ubuntu-hosted umgeht das und beweist die Logik end-to-end):
 2 Code-Reviews (opus) + 6+ echte Bugs gefangen & gefixt (Permissions-Eskalation,
 coverage-false-green, opa-rego-cross-fire, eslint-parser, fehlende checkouts, conftest-import).
 
-## ❌ Was OFFEN ist (Wiederaufnahme-Punkte)
+## ❌ Was OFFEN ist (Wiederaufnahme-Punkte, Stand 2026-06-01)
 
-1. **P4 App-Rollout (FootballApp → RecyclageApp → MitarbeiterApp → Rechnungsapp)** — Thin-Caller-Migration. Braucht zuerst LXC-104 Runner-Dispatch-Fix (GOTCHA #4).
-2. **LXC-104 Self-Hosted Runner Re-Registrierung** — Voll-Re-Registrierung (`config.sh remove` + neu). SSH: `ssh root@192.168.1.20` → `pct exec 104 -- ...`.
-3. **`reusable-release.yml` Runtime-Test** — Erster echter Tag-Push wird v1.2 (oder später) sein. Validierung deferred.
+1. **App-Test-Remediation (3 Apps)** — RecyclageApp/MitarbeiterApp/Rechnungsapp sind auf `@v1` migriert, die Pipeline LÄUFT korrekt (kein startup_failure mehr), Lint ist advisory — ABER ihre **Test-Suites scheitern am harten Test-Gate**. RecyclageApp verifiziert: postgres+redis starten sauber → **kein CI-/Config-Bug, echte App-Test-Fails**. Das ist App-Code-Arbeit PRO REPO (je App: `systematic-debugging` der Test-Fails bis grün), getrennt von der CI. **Nächster Schritt wenn gewünscht:** eine App vornehmen (RecyclageApp zuerst), Tests grün machen.
+2. **MitarbeiterApp + Rechnungsapp**: ihre CI-Migration-Commits sind lokal committed aber teils noch nicht gepusht (+ fremde Feature-WIP im Working-Tree dieser Repos — NICHT mit-pushen!). Vor App-Arbeit: pro Repo `git status` prüfen, fremde WIP respektieren.
+3. **FootballApp** pinnt `@v1.3.0` (exakt, grün); fleet-konsistenter wäre `@v1` — optionaler Angleich.
+4. **LXC-104 self-hosted Runner** sind FLAKY + 4 GB RAM (OOM-Risiko bei 4 parallel schweren Jobs). Apps ohne `runner-label`-Override laufen dort. Für stabile self-hosted-Läufe ggf. Re-Registrierung / mehr RAM. Validierung lief deshalb auf ubuntu (`runner-label: '["ubuntu-latest"]'`).
+5. **`reusable-load-test` + DAST/Lighthouse** brauchen Live-Staging-Ziele → noch nicht runtime-validiert.
 
 ---
 
