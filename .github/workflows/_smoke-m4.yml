@@ -1,0 +1,48 @@
+# TEMPORARY M4 validation smoke — proves dynamic service ports prevent the
+# 5432/6379 collision when multiple test-matrix shards run concurrently on the
+# shared self-hosted Docker daemon (LXC-104). 3 shards all run the fixture test.
+# Controller DELETES this file after the run is green.
+name: "🧪 Smoke — M4 ports (TEMP)"
+
+on:
+  push:
+    branches: [dev]
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
+  security-events: write
+  checks: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  ci:
+    uses: ./.github/workflows/reusable-ci.yml
+    with:
+      app-name: smoke-m4
+      runner-label: '["self-hosted", "linux", "proxmox"]'
+      coverage-threshold: 0
+      # 3 shards run concurrently — each starts postgres+redis. With dynamic host
+      # ports they must NOT collide on the shared daemon. test-env references the
+      # well-known ports to exercise the runtime rewrite.
+      test-shards: >-
+        [{"name":"a","paths":"tests/fixtures/app","cov":"tests/fixtures/app"},
+         {"name":"b","paths":"tests/fixtures/app","cov":"tests/fixtures/app"},
+         {"name":"c","paths":"tests/fixtures/app","cov":"tests/fixtures/app"}]
+      test-env: '{"SMOKE_DATABASE_URL":"postgresql://postgres:postgres@localhost:5432/test","SMOKE_REDIS_URL":"redis://localhost:6379/0"}'
+      enable-push: false
+      dockerfile: tests/fixtures/docker/Dockerfile
+      docker-context: tests/fixtures/docker
+      image-name: ghcr.io/adza-group/smoke-m4
+      has-frontend: false
+      staging-url: ""
+      prod-url: ""
+      deploy-prod: false
+      enable-property-tests: false
+      enable-mutation: false
+      enable-load-test: false
+      enable-dast: false
+    secrets: inherit
