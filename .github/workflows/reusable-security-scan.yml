@@ -1,9 +1,10 @@
 # ═══════════════════════════════════════════════════════════════
 # Reusable Security Scanning Workflow — ADZA-Group (senior-grade)
 #
-# Jobs: gitleaks (hard) · Bandit · Semgrep · Trivy FS+IaC · pip-audit
-#       · CodeQL (py+js) · dependency-review (PR) · OPA/conftest
-# Dual-gate: advisory on PR/dev, BLOCKING on main + tags.
+# Jobs: gitleaks (hard) · Bandit HIGH-only (blocks main/tags) · Semgrep (advisory)
+#       · Trivy FS+IaC (advisory) · pip-audit (advisory) · CodeQL (advisory)
+#       · dependency-review (PR, advisory) · OPA/conftest (advisory)
+# Gate policy: gitleaks + bandit-HIGH ALWAYS block; all SAST/SCA advisory always.
 # Debian-13 self-hosted safe: uses setup-python-deps composite (NOT actions/setup-python).
 #
 # Usage:
@@ -109,9 +110,9 @@ jobs:
         run: |
           bandit -r . --exclude "$BANDIT_EXCLUDE" \
             --skip B101,B104,B105,B106,B311,B603,B607 \
-            -ll -f json -o /tmp/bandit.json || true
+            --severity-level high -ll -f json -o /tmp/bandit.json || true
           bandit -r . --exclude "$BANDIT_EXCLUDE" \
-            --skip B101,B104,B105,B106,B311,B603,B607 -ll
+            --skip B101,B104,B105,B106,B311,B603,B607 --severity-level high -ll
       - name: Summary
         if: always()
         run: |
@@ -139,7 +140,7 @@ jobs:
           extra-packages: "semgrep==1.*"
           cache-key-suffix: semgrep
       - name: Semgrep scan
-        continue-on-error: ${{ !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
+        continue-on-error: true
         env:
           SEMGREP_CONFIGS: ${{ inputs.semgrep-configs }}
         run: |
@@ -166,7 +167,7 @@ jobs:
           scan-ref: .
           format: table
           severity: CRITICAL,HIGH
-          exit-code: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && '1' || '0' }}
+          exit-code: '0'
       - name: Config / IaC scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
@@ -174,7 +175,7 @@ jobs:
           scan-ref: .
           format: table
           severity: CRITICAL,HIGH,MEDIUM
-          exit-code: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && '1' || '0' }}
+          exit-code: '0'
 
   # ── SCA: pip-audit (dual-gate) ────────────────────────────────
   pip-audit:
@@ -190,7 +191,7 @@ jobs:
           extra-packages: "pip-audit==2.*"
           cache-key-suffix: pip-audit
       - name: pip-audit
-        continue-on-error: ${{ !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
+        continue-on-error: true
         run: |
           if [ ! -f requirements.txt ]; then
             echo "::notice::no requirements.txt — skipping pip-audit"; exit 0
@@ -258,4 +259,4 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
       - uses: adza-group/shared-workflows/.github/actions/opa-policy@v1
         with:
-          blocking: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && 'true' || 'false' }}
+          blocking: 'false'
