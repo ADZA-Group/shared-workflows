@@ -134,8 +134,8 @@ on:
       enable-ghcr-prune:
         required: false
         type: boolean
-        default: true
-        description: "Prune old GHCR versions after a successful deploy"
+        default: false
+        description: "Prune old untagged GHCR versions after a green deploy (opt-in per app — enable only after validating multi-arch arch-manifest safety, see Risk #2)"
       ghcr-keep-versions:
         required: false
         type: number
