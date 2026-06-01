@@ -199,7 +199,7 @@ jobs:
       deploy-prod: false
       staging-url: ""
       prod-url: ""
-      runner-label: ${{ vars.RUNNER_LABEL || '["self-hosted","linux","proxmox"]' }}
+      runner-label: ${{ vars.RUNNER_LABEL || '["ubuntu-latest"]' }}
       test-env: '{"MITARBEITER_TESTING":"1"}'
       test-shards: '[{"name":"backend","paths":"tests/"}]'
 ```
