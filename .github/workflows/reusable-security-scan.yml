@@ -97,7 +97,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@dev
+      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1.3.1
         with:
           install-requirements: "false"
           extra-packages: "bandit[toml]==1.*"
@@ -133,7 +133,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@dev
+      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1.3.1
         with:
           install-requirements: "false"
           extra-packages: "semgrep==1.*"
@@ -184,7 +184,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@dev
+      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1.3.1
         with:
           install-requirements: "false"
           extra-packages: "pip-audit==2.*"
@@ -213,7 +213,10 @@ jobs:
     permissions:
       contents: read
       security-events: write
-    continue-on-error: ${{ !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
+    # Always advisory: code-scanning result upload needs GitHub Advanced Security,
+    # which free/private orgs lack → CodeQL can't persist results ("Resource not
+    # accessible"). Keep it running but never block (incl. main).
+    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
@@ -235,6 +238,10 @@ jobs:
     if: ${{ inputs.run-dependency-review && github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Advisory: dependency-review-action needs the Dependency Graph (GitHub Advanced
+    # Security). Private repos without GHAS get "not supported on this repository" —
+    # don't let that fail the whole security gate.
+    continue-on-error: true
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
       - uses: actions/dependency-review-action@v4
@@ -249,6 +256,6 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-      - uses: adza-group/shared-workflows/.github/actions/opa-policy@dev
+      - uses: adza-group/shared-workflows/.github/actions/opa-policy@v1.3.1
         with:
           blocking: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && 'true' || 'false' }}
