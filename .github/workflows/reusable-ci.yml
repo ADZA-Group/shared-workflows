@@ -131,6 +131,16 @@ on:
         type: boolean
         default: false
         description: "Enable DAST scan after staging verify (wired in Cycle B)"
+      enable-ghcr-prune:
+        required: false
+        type: boolean
+        default: true
+        description: "Prune old GHCR versions after a successful deploy"
+      ghcr-keep-versions:
+        required: false
+        type: number
+        default: 3
+        description: "Number of recent tagged GHCR versions to keep"
 
 permissions:
   contents: read
@@ -669,9 +679,31 @@ jobs:
         if: steps.prod-check.outcome == 'failure'
         run: exit 1
 
+  prune-ghcr:
+    name: "🧹 Prune GHCR"
+    needs: [docker-build, verify-staging, verify-prod]
+    if: >-
+      ${{ always() && inputs.enable-ghcr-prune && github.event_name == 'push' &&
+      needs.docker-build.result == 'success' &&
+      needs.verify-staging.result != 'failure' &&
+      needs.verify-prod.result != 'failure' }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 10
+    permissions:
+      packages: write
+    steps:
+      - name: Delete untagged versions
+        continue-on-error: true
+        uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55  # v5.0.0
+        with:
+          package-name: ${{ inputs.app-name }}
+          package-type: container
+          delete-only-untagged-versions: "true"
+          min-versions-to-keep: 0
+
   telemetry:
     name: "📈 Telemetry"
-    needs: [changes, lint-python, lint-dockerfile, code-quality, dead-code, todo-tracker, license-check, commit-lint, security, test-matrix, property-tests, mutation, frontend, coverage, test-results, docker-build, verify-staging, require-staging-green, verify-prod, load-test, pr-summary, dast]
+    needs: [changes, lint-python, lint-dockerfile, code-quality, dead-code, todo-tracker, license-check, commit-lint, security, test-matrix, property-tests, mutation, frontend, coverage, test-results, docker-build, verify-staging, require-staging-green, verify-prod, load-test, pr-summary, dast, prune-ghcr]
     if: ${{ always() }}
     runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 5
