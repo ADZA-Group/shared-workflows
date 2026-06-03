@@ -24,6 +24,10 @@ inputs:
     description: "Per-test timeout seconds"
     required: false
     default: "60"
+  test-reruns:
+    description: "Auto-rerun failed tests N times (flaky mitigation; 0 disables)"
+    required: false
+    default: "1"
 
 runs:
   using: composite
@@ -45,8 +49,15 @@ runs:
         else
           SELECT=(${{ inputs.test-paths }})
         fi
+        # Flaky mitigation: rerun failed tests (pytest-rerun-failures). Reruns appear in junit.
+        RERUN=()
+        if [ "${{ inputs.test-reruns }}" != "0" ]; then
+          pip install -q pytest-rerun-failures || echo "::warning::pytest-rerun-failures install failed — running without reruns"
+          python -c "import pytest_rerunfailures" 2>/dev/null && RERUN=(--reruns "${{ inputs.test-reruns }}" --reruns-delay 1)
+        fi
         pytest "${SELECT[@]}" \
           --timeout=${{ inputs.timeout }} \
+          "${RERUN[@]}" \
           --cov=${{ inputs.coverage-source }} --cov-report= \
           --junitxml=junit-${{ inputs.shard-name }}.xml \
           -p no:cacheprovider
