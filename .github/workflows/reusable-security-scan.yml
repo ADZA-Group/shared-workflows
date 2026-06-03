@@ -205,11 +205,11 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # ── CodeQL (py+js) — ubuntu (RAM); dual-gate ──────────────────
+  # ── CodeQL (py+js) — runner-label-driven; advisory (RAM-heavy: prefers hosted when minutes available) ──
   codeql:
     name: "🔬 CodeQL"
     if: ${{ inputs.run-codeql }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 20
     permissions:
       actions: read            # REQUIRED for private repos: analyze calls GET /actions/runs/{id}; without it →
@@ -245,7 +245,7 @@ jobs:
   dependency-review:
     name: "📜 Dependency Review"
     if: ${{ inputs.run-dependency-review && github.event_name == 'pull_request' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 10
     # Advisory: dependency-review-action needs the Dependency Graph (GitHub Advanced
     # Security). Private repos without GHAS get "not supported on this repository" —
