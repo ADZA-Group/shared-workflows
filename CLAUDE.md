@@ -1,21 +1,21 @@
 # CLAUDE.md — `shared-workflows` (ADZA-Group Unified CI)
 
 > **Für Claude (neue Session):** Dies ist der Wiederaufnahme-Handoff für die Unified-CI-Initiative.
-> Stand **2026-06-03**, branch `dev`. **Released: floating `@v1` = `v1.4.0` (commit `a2aff18`).** Lies das hier zuerst.
+> Stand **2026-06-03**, branch `dev`. **Released: floating `@v1` = `v1.4.2` (commit `edc6277`) — verifiziert via `git ls-remote`.** Lies das hier zuerst.
 >
-> **▶️ RESUME-PUNKT (2026-06-03) — START HIER:** Zwei Dinge sind *code-fertig* aber `main`-CI-blockiert durch einen
-> **GitHub-Actions-Minuten-Engpass** (`ADZA-Group` 2126/2000 Gratis-Min, $0 Spend → hosted-Runner org-weit geblockt, `startup_failure`):
-> 1. **Deploy-Tail (v1.4.0):** staging+prod Auto-Rollback (GHCR-authed Re-Tag, buildx+login+`packages:write` in verify-staging/-prod) +
->    `prune-ghcr` (opt-in untagged-sweep, Risk#1 geklärt: `GITHUB_TOKEN` reicht, 22 gelöscht) + `:staging-previous`-Backup. **Released + dev-grün.**
->    DT3 (`prod-url`+`deploy-prod`+`/health`-URLs) in alle 4 Caller + dev→main gemergt; **verify-prod-main-Bestätigung steht aus** (Minuten-Block).
->    Plan: `docs/superpowers/plans/2026-06-01-deploy-tail-rollback-cleanup.md`. **Noch offen:** DT4 (watchtower `--cleanup` in App-Composes +
->    RecyclageApp `containrrr→nickfedor`-Migration — SSH-LXC, USER-GATED) + DT5 (deliberate-rollback-Test, multi-arch-prune).
-> 2. **Self-Hosted-CI-Umbau (v1.4.1) — NÄCHSTER SCHRITT:** Spec FERTIG + approved →
->    `docs/superpowers/specs/2026-06-03-self-hosted-ci-runner-selection-design.md`. **Nächste Aktion: `writing-plans` auf dieser Spec → subagent-driven impl.**
->    Kern: `decide-runner`-Fallback invertieren (kein-PAT/Billing-unlesbar/Minuten-niedrig → **self-hosted** statt hosted; 4 App-Caller) +
->    2 hartkodierte `ubuntu-latest`-Jobs (codeql/dep-review, `reusable-security-scan.yml`:212/248) → `runner-label` + RecyclageApp `multi-arch:false`.
->    `decide-runner` läuft schon auf self-hosted (gepusht); 3× LXC-104-Runner online (runner-4 AUS = 4 GB-OOM-Linie). Entsperrt ALLES (Deploy-Tail-main + DT3) gratis.
->    **Alternativ (einfacher):** Spending-Limit > $0 in Org-Billing → hosted sofort frei → alles grün ohne Umbau.
+> **▶️ RESUME-PUNKT (2026-06-03) — Self-Hosted-CI-Umbau IMPLEMENTIERT (v1.4.1+v1.4.2):** GitHub-Actions-Gratis-Minuten waren
+> erschöpft (`ADZA-Group` 2126/2000, $0 Spend) → hosted-Runner org-weit geblockt. **Fix = Fleet-CI voll self-hosted-fähig gemacht:**
+> 1. `decide-runner`-Fallback invertiert (kein-PAT / Billing-unlesbar / Minuten-niedrig → **self-hosted** statt hosted) in allen 4 App-Callern + dev→main.
+> 2. **ALLE hardkodierten hosted-Stellen in `reusable-ci`/`reusable-security-scan` entfernt** (v1.4.1: codeql + dependency-review `runs-on`→runner-label;
+>    v1.4.2: `frontend` + `dast` `runner-label`-Input war `'["ubuntu-latest"]'` hardkodiert → forwardet jetzt `${{ inputs.runner-label }}`). `grep ubuntu-latest reusable-ci.yml` = 0.
+> 3. RecyclageApp `multi-arch:false` (amd64-only, kein QEMU-OOM auf 4 GB self-hosted).
+> **Empirisch bewiesen:** `decide-runner`→self + `Detect Changes` success auf self-hosted, **0 Billing-Blocks** für runner-label-Jobs.
+> **OFFEN (Queue/Versions-Realität):** 3× LXC-104-Runner (runner-4 AUS = 4 GB-OOM-Linie) verarbeiten den Validierungs-Backlog LANGSAM.
+> Die main-Runs der 2 Frontend-Apps (RecyclageApp/MitarbeiterApp), die auf **v1.4.1** starteten, tragen noch den frontend-Billing-Block →
+> brauchen einen **frischen Run auf @v1=v1.4.2** (proven-by-construction grün; Rechnungsapp/FootballApp ohne Frontend sind schon entsperrt).
+> **Nächster Schritt:** Queue abwarten/abräumen → fresh v1.4.2-Runs der Frontend-Apps grün verifizieren. **Alternativ (sofort):** Spending-Limit > $0 → hosted frei.
+> **Deploy-Tail (v1.4.0) noch offen:** DT4 (watchtower `--cleanup` Composes + RecyclageApp `containrrr→nickfedor`, SSH-LXC) + DT5 (rollback-Test). Plan: `docs/.../plans/2026-06-01-deploy-tail-rollback-cleanup.md`.
+> Self-Hosted-Spec/Plan: `docs/.../specs|plans/2026-06-03-self-hosted-ci-runner-selection*.md`.
 > Globale Arbeitsregeln: `~/.claude/CLAUDE.md`. Detail-Memory: `~/.claude/projects/.../memory/project_unified_ci.md`.
 >
 > **TL;DR Endstand:** Die CI-Bibliothek ist FERTIG, hermetisch, released. Apps pinnen `@v1`.
