@@ -91,6 +91,44 @@ than the caller's** — if the callee requests more, GitHub fails the run at **`
 | `enable-push` | `true` | GHCR push on `push` events (false for build-only) |
 | `deploy-*` / verify | *(Phase 3b)* | deploy/verify tail not yet wired in the core orchestrator |
 
+## Image signing & verification
+
+Every image pushed by `reusable-ci.yml` (and `reusable-docker-build.yml` when `push: true`)
+is signed by default via **cosign keyless** (Fulcio OIDC, `sigstore/cosign-installer@v4.1.2`)
+and gets a **SLSA build provenance attestation** (`actions/attest-build-provenance@v2`).
+Both steps run `continue-on-error: true` — they are best-effort: a Sigstore/Rekor outage,
+a paid-only org limit, or a missing scope will produce an advisory red step but never block
+the push.
+
+### Opt-out
+
+Set `sign-image: false` in your caller `with:` block only if you have a specific reason
+(e.g. you call `reusable-docker-build` from a context without `id-token: write`). The
+default is `true` for all ADZA-Group apps.
+
+### Verifying a signed image externally
+
+```bash
+# 1. Cosign signature (Fulcio keyless, Rekor transparency log)
+cosign verify \
+  --certificate-identity-regexp '^https://github.com/ADZA-Group/<app>/' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  ghcr.io/adza-group/<app>:<tag>
+
+# 2. SLSA build provenance attestation (GitHub-issued)
+gh attestation verify oci://ghcr.io/adza-group/<app>:<tag> \
+  --repo ADZA-Group/<app>
+```
+
+For an app under a user namespace (e.g. `azad-ahmed/mitarbeiter-app`), adjust the
+`certificate-identity-regexp` and `--repo` accordingly.
+
+### Optional hard-gate
+
+The verify-side `require-signed-images` repo variable (consumed by `verify-prod`) is
+**opt-in** and stays opt-in in Phase B — flip it per-repo only after a few green signing
+runs are observed in the docker-build job log.
+
 ## Caveats / known gaps (in progress)
 
 - **Multi-arch:** arm64 layers are not separately Trivy-scanned (amd64 is the gated representative). Decide per-arch scanning before relying on `multi-arch: true` for security gating.
