@@ -12,6 +12,18 @@ inputs:
     description: "Fail the job when below threshold (false => warn only)"
     required: false
     default: "true"
+  diff-coverage-threshold:
+    description: "Min coverage % on lines changed vs compare-branch (0 disables)"
+    required: false
+    default: "0"
+  diff-coverage-compare-branch:
+    description: "Branch to diff against for changed-line coverage"
+    required: false
+    default: "origin/main"
+  diff-coverage-blocking:
+    description: "Fail when diff-coverage below threshold (false => warn)"
+    required: false
+    default: "false"
 
 runs:
   using: composite
@@ -55,5 +67,26 @@ runs:
             echo "::error::coverage ${TOTAL}% < ${{ inputs.threshold }}%"; exit 1
           else
             echo "::warning::coverage ${TOTAL}% < ${{ inputs.threshold }}% (advisory)"
+          fi
+        fi
+
+    - name: Diff coverage (new/changed lines)
+      if: ${{ inputs.diff-coverage-threshold != '0' }}
+      shell: bash
+      run: |
+        pip install -q diff-cover || { echo "::warning::diff-cover install failed — skipping diff-coverage"; exit 0; }
+        BR="${{ inputs.diff-coverage-compare-branch }}"
+        git fetch origin "${BR#origin/}" --depth=200 2>/dev/null || true
+        echo "## 🔬 Diff coverage (changed vs ${BR})" >> "$GITHUB_STEP_SUMMARY"
+        if diff-cover coverage.xml --compare-branch="$BR" \
+             --fail-under="${{ inputs.diff-coverage-threshold }}" \
+             --markdown-report diff-cov.md; then
+          echo "✅ changed-line coverage ≥ ${{ inputs.diff-coverage-threshold }}%" >> "$GITHUB_STEP_SUMMARY"
+        else
+          tail -40 diff-cov.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          if [ "${{ inputs.diff-coverage-blocking }}" = "true" ]; then
+            echo "::error::diff-coverage on changed lines < ${{ inputs.diff-coverage-threshold }}%"; exit 1
+          else
+            echo "::warning::diff-coverage on changed lines < ${{ inputs.diff-coverage-threshold }}% (advisory)"
           fi
         fi
