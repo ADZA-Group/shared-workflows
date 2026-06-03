@@ -59,7 +59,7 @@ on:
       sign-image:
         required: false
         type: boolean
-        default: false
+        default: true
       build-args:
         required: false
         type: string
