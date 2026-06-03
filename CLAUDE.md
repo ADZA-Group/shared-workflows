@@ -1,7 +1,11 @@
 # CLAUDE.md — `shared-workflows` (ADZA-Group Unified CI)
 
 > **Für Claude (neue Session):** Dies ist der Wiederaufnahme-Handoff für die Unified-CI-Initiative.
-> Stand **2026-06-03**, branch `dev`. **Released: floating `@v1` = `v1.4.2` (commit `edc6277`) — verifiziert via `git ls-remote`.** Lies das hier zuerst.
+> Stand **2026-06-03**, branch `dev`. **Released: floating `@v1` = `v1.5.0` (commit `ff674f6`) — verifiziert via `git ls-remote`.** Lies das hier zuerst.
+>
+> **🚀 CI-POWER-UP läuft** (Senior-Level „alles abdecken", Umbrella-Spec `docs/superpowers/specs/2026-06-03-senior-ci-powerup-design.md`, 6 Phasen, Reihenfolge A✅→B→F→C→E→D):
+> **Phase A ✅ released (v1.5.0):** diff-coverage-gate (changed-line, default 80%, dual-gate, in `coverage-gate`-Composite + reusable-ci coverage-job `fetch-depth:0`) + `pytest-rerun-failures` flaky-auto-rerun (`test-reruns`-Input in `run-pytest-shard`). Composites live; **empirische coverage-job-Validierung läuft beim nächsten App-Push mit Python-Code-Änderung** (diff-cover braucht test-matrix→coverage). Plan: `docs/superpowers/plans/2026-06-03-ci-powerup-phaseA-test-depth.md`.
+> **Offen B–F (je eigener writing-plans→exec-Zyklus, frische Session empfohlen):** B = cosign-signing fleet-weit AN (`sign-image` default true) · C = frontend a11y(pa11y/axe)+Lighthouse-Budget · D = API-Contract/schemathesis (⚠️ braucht OpenAPI-Specs pro App = größter Brocken) · E = GitHub-Environments+Prod-Approval+PR-concurrency (⚠️ Environment-protection evtl. paid-gated auf private) · F = leichte config-CI (`reusable-config-ci.yml`) für paperless/cloudflare.
 >
 > **▶️ RESUME-PUNKT (2026-06-03) — Self-Hosted-CI-Umbau IMPLEMENTIERT (v1.4.1+v1.4.2):** GitHub-Actions-Gratis-Minuten waren
 > erschöpft (`ADZA-Group` 2126/2000, $0 Spend) → hosted-Runner org-weit geblockt. **Fix = Fleet-CI voll self-hosted-fähig gemacht:**
