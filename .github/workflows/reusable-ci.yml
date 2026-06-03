@@ -513,7 +513,7 @@ jobs:
     uses: adza-group/shared-workflows/.github/workflows/reusable-frontend.yml@v1
     with:
       frontend-dir: ${{ inputs.frontend-dir }}
-      runner-label: '["ubuntu-latest"]'
+      runner-label: ${{ inputs.runner-label }}
     secrets: inherit
 
   load-test:
@@ -544,7 +544,7 @@ jobs:
       target-url: ${{ inputs.staging-url }}
       scan-type: baseline
       blocking: false
-      runner-label: '["ubuntu-latest"]'
+      runner-label: ${{ inputs.runner-label }}
     secrets: inherit
 
   docker-build:
