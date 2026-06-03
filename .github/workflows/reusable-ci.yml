@@ -49,6 +49,11 @@ on:
         required: false
         type: number
         default: 50
+      diff-coverage-threshold:
+        required: false
+        type: number
+        default: 80
+        description: "Min coverage % on changed lines (PR/dev advisory, main/tags hard); 0 disables"
       postgres-version:
         required: false
         type: string
@@ -437,6 +442,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          fetch-depth: 0
       - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1
         with:
           install-requirements: "false"
@@ -446,6 +453,9 @@ jobs:
         with:
           threshold: ${{ inputs.coverage-threshold }}
           blocking: "true"
+          diff-coverage-threshold: ${{ inputs.diff-coverage-threshold }}
+          diff-coverage-compare-branch: "origin/main"
+          diff-coverage-blocking: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
 
   test-results:
     name: "📋 Test Results"
