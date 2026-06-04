@@ -27,7 +27,7 @@ MOCK_CS=running MOCK_CA=active MOCK_ONLINE=2;  eq "healthy"          "$(classify
 MOCK_CS=stopped MOCK_CA=active MOCK_ONLINE=0;  eq "container down"   "$(classify)" "down:container=stopped"
 MOCK_CS=running MOCK_CA=failed MOCK_ONLINE=0;  eq "controller down"  "$(classify)" "down:controller=failed"
 MOCK_CS=running MOCK_CA=active MOCK_ONLINE=0;  eq "maybe (0 online)" "$(classify)" "maybe:online=0"
-MOCK_CS=running MOCK_CA=active MOCK_ONLINE=-1; eq "api error->maybe" "$(classify)" "maybe:online=-1"
+MOCK_CS=running MOCK_CA=active MOCK_ONLINE=-1; eq "api unreadable->unknown" "$(classify)" "unknown:online_api"
 
 # ===== Task 3: state + hysteresis =====
 state_set zero_ticks 0; eq "state roundtrip" "$(state_get zero_ticks)" "0"
@@ -41,6 +41,13 @@ eq "maybe tick2 -> down" "$(assess)" "down"; eq "  ticks=2" "$(state_get zero_ti
 
 MOCK_CS=stopped MOCK_CA=active MOCK_ONLINE=0
 state_set zero_ticks 0; eq "container down immediate" "$(assess)" "down"
+
+# SAFETY: API unreadable (bad/missing token) must NEVER escalate to down (no false reboot)
+MOCK_CS=running MOCK_CA=active MOCK_ONLINE=-1; state_set zero_ticks 0
+eq "unknown tick1 -> healthy" "$(assess)" "healthy"
+eq "unknown tick2 -> healthy" "$(assess)" "healthy"
+eq "unknown tick3 -> healthy" "$(assess)" "healthy"
+eq "  unknown keeps ticks=0" "$(state_get zero_ticks)" "0"
 
 # ===== Task 4: heal ladder (mock side-effect commands + waits + busy) =====
 do_start_container(){ HEAL_LOG+="start

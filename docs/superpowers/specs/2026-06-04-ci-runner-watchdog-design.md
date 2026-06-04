@@ -55,6 +55,9 @@ Pro Tick, in Reihenfolge:
   `busy`) = **healthy, keine Aktion.**
 - **DOWN:** Container ≠ running **oder** Controller ≠ active **oder** (0 Runner online **für
   ≥ 2 aufeinanderfolgende Ticks**, um eine kurze Skalierungs-Lücke nicht als Ausfall zu werten).
+- **UNKNOWN (KEIN Down-Signal):** Runner-API unlesbar (z.B. Token fehlt/abgelaufen → Count `-1`)
+  ⇒ **keine Eskalation, kein Heal/Reboot** — nur Container/Controller-Signale zählen dann.
+  Verhindert einen Fehl-Reboot, der einen gesunden Runner bei reinem Token-Problem abwürgen würde.
 
 > Die „2 Ticks"-Hysterese verhindert Fehlalarm, während der Controller gerade einen Runner
 > hoch-/runterfährt.
@@ -123,3 +126,7 @@ Pro Tick, in Reihenfolge:
 - **R2:** SMTP-Creds/Token auf dem Host = Secret-Fläche → root-only `.env`, least-privilege Token.
 - **R3:** Wächter selbst fällt aus (Proxmox-Host down) → außerhalb des Scopes (wenn der
   Proxmox-Host weg ist, ist alles weg); `Restart=on-failure` am Service mindert Prozess-Crashes.
+- **R4 (gefunden + gefixt bei Implementierung):** Fehlender/abgelaufener `GH_TOKEN` → Runner-API
+  liefert `-1`; naiv als „0 Runner" gewertet hätte das zu **Fehl-Reboot eines gesunden Runners**
+  geführt. Gemindert: `classify` unterscheidet `unknown:online_api` (eskaliert NICHT) von echtem
+  `0` (eskaliert). Test: `unknown tick1..3 -> healthy`, `unknown keeps ticks=0`.

@@ -50,7 +50,8 @@ classify(){
   cs="$(container_status)";  [ "$cs" != "running" ] && { echo "down:container=$cs"; return; }
   ca="$(controller_active)"; [ "$ca" != "active" ]  && { echo "down:controller=$ca"; return; }
   online="$(runners_online_count)"
-  [ "${online:-0}" -le 0 ] && { echo "maybe:online=$online"; return; }
+  [ "${online:-0}" -lt 0 ] && { echo "unknown:online_api"; return; }   # API unreadable (bad/missing token) -> NOT a down signal
+  [ "${online:-0}" -eq 0 ] && { echo "maybe:online=0"; return; }
   echo "healthy"
 }
 
@@ -58,10 +59,12 @@ classify(){
 assess(){
   local c z; c="$(classify)"; z="$(state_get zero_ticks)"; z="${z:-0}"
   case "$c" in
-    healthy)  state_set zero_ticks 0; echo "healthy" ;;
-    down:*)   echo "down" ;;
-    maybe:*)  z=$((z+1)); state_set zero_ticks "$z"
-              if [ "$z" -ge "$ZERO_TICKS_DOWN" ]; then echo "down"; else echo "healthy"; fi ;;
+    healthy)    state_set zero_ticks 0; echo "healthy" ;;
+    unknown:*)  log "WARN: $c -- runner API unreadable (token?), skipping runner-based detection" >&2
+                state_set zero_ticks 0; echo "healthy" ;;
+    down:*)     echo "down" ;;
+    maybe:*)    z=$((z+1)); state_set zero_ticks "$z"
+                if [ "$z" -ge "$ZERO_TICKS_DOWN" ]; then echo "down"; else echo "healthy"; fi ;;
   esac
 }
 
