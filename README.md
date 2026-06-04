@@ -45,8 +45,8 @@ on:
   push:         { branches: [main, dev], tags: ['v*'] }
   pull_request: { branches: [main, dev] }
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.sha }}
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:               # ⚠️ REQUIRED — see note below
   contents: read
   packages: write
@@ -172,6 +172,22 @@ For an app under a user namespace (e.g. `azad-ahmed/mitarbeiter-app`), adjust th
 The verify-side `require-signed-images` repo variable (consumed by `verify-prod`) is
 **opt-in** and stays opt-in in Phase B — flip it per-repo only after a few green signing
 runs are observed in the docker-build job log.
+
+## Deploy environments (opt-in)
+
+`reusable-ci.yml` accepts `prod-environment` / `staging-environment` (default `""` = none).
+Setting `prod-environment: production` attaches the `verify-prod` job to a GitHub
+Environment — giving a **Deployments tab + history** for free.
+
+**Required-reviewer approval is a paid feature on private repos** (`gh api` returns
+`422 "billing plan supports the required reviewers protection rule"`). On the free
+private org, the environment exists for tracking but cannot enforce approval. To enable
+approval: upgrade to GitHub Team/Pro, then
+`gh api -X PUT repos/<r>/environments/production -f 'reviewers[][type]=User' -F 'reviewers[][id]=<id>'`.
+
+**Note on the watchtower deploy model:** deploys are watchtower pull-based (no gate-able
+deploy job). An environment on `verify-prod` gates the health-check; for true *pre-deploy*
+approval you would gate the `:latest` push in `docker-build` (separate change, not wired).
 
 ## Caveats / known gaps (in progress)
 
