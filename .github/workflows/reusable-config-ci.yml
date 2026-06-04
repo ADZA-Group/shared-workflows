@@ -69,8 +69,17 @@ jobs:
         continue-on-error: ${{ !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
         run: |
           set -o pipefail   # don't let `| tee` mask a real yamllint failure (would defeat the main/tag gate)
-          python3 -m pip install --quiet --user yamllint || pip install --quiet yamllint
-          python3 -m yamllint -d relaxed . | tee yamllint.out
+          # PEP 668 (Debian 13 self-hosted): system python is externally-managed →
+          # `pip install --user` aborts. Use a throwaway venv (works on ubuntu + self-hosted).
+          if ! command -v yamllint >/dev/null 2>&1; then
+            python3 -m venv /tmp/yamllint-venv 2>/dev/null \
+              && /tmp/yamllint-venv/bin/pip install --quiet yamllint \
+              && export PATH="/tmp/yamllint-venv/bin:$PATH"
+            command -v yamllint >/dev/null 2>&1 \
+              || python3 -m pip install --quiet --user yamllint \
+              || python3 -m pip install --quiet --break-system-packages yamllint
+          fi
+          yamllint -d relaxed . | tee yamllint.out
           {
             echo "## 🧾 Yamllint"
             echo '```'
