@@ -118,9 +118,10 @@ jobs:
             BASE=$(printf '%s' "$HEALTH" | sed -E 's#(https?://[^/]+).*#\1#')
           fi
           ARGS=""
-          [ -n "$BASE" ] && ARGS="--url $BASE"
+          [ -n "$BASE" ] && ARGS="--base-url $BASE"
           echo "schemathesis run $SPEC $ARGS $EXTRA"
-          # schemathesis 3.x CLI: `schemathesis run <spec> --url <base> [checks...]`
+          # schemathesis 3.x CLI: `schemathesis run <spec> --base-url <base> [checks...]`
+          # (v4 renamed this flag to --url; we pin 3.x → --base-url is correct here.)
           schemathesis run "$SPEC" $ARGS $EXTRA | tee /tmp/schemathesis.out
           {
             echo "## 📑 API Contract (schemathesis)"
