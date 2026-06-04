@@ -1,0 +1,34 @@
+# Smoke: proves `environment: ${{ inputs.x }}` with an EMPTY string runs fine
+# (no startup_failure) and a NON-empty value is honored. Guards the high-blast-radius
+# empty-environment wiring in reusable-ci verify-prod/verify-staging.
+name: "🧪 Smoke — Environment"
+
+on:
+  workflow_dispatch:
+    inputs:
+      env-name:
+        description: "Environment for the empty-env job (leave blank to prove empty is safe)"
+        required: false
+        type: string
+        default: ""
+  push:
+    branches: [dev]
+    paths:
+      - '.github/workflows/_smoke-env.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  empty-env:
+    name: "empty environment (should run, no gate)"
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.env-name || '' }}
+    steps:
+      - run: echo "empty-environment job ran — no startup_failure ✅"
+  named-env:
+    name: "named environment (should run, env honored)"
+    runs-on: ubuntu-latest
+    environment: ci-smoke
+    steps:
+      - run: echo "named-environment job ran with env 'ci-smoke' ✅"

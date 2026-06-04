@@ -126,6 +126,16 @@ on:
         type: string
         default: ""
         description: "Prod health-check URL (empty = skip verify-prod)"
+      prod-environment:
+        required: false
+        type: string
+        default: ""
+        description: "GitHub Environment for the verify-prod job (empty = none). Gives a Deployments tab; required-reviewer approval needs a paid plan on private repos."
+      staging-environment:
+        required: false
+        type: string
+        default: ""
+        description: "GitHub Environment for the verify-staging job (empty = none)."
       deploy-prod:
         required: false
         type: boolean
@@ -586,6 +596,7 @@ jobs:
 
   verify-staging:
     name: "🔍 Verify Staging"
+    environment: ${{ inputs.staging-environment }}
     needs: [docker-build]
     if: >-
       ${{ always() && inputs.staging-url != '' && inputs.deploy-prod &&
@@ -649,6 +660,7 @@ jobs:
 
   verify-prod:
     name: "✅ Verify Prod"
+    environment: ${{ inputs.prod-environment }}
     needs: [docker-build, require-staging-green]
     if: >-
       ${{ always() && inputs.prod-url != '' && inputs.deploy-prod &&
