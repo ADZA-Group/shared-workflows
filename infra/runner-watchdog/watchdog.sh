@@ -17,6 +17,7 @@ set -uo pipefail
 : "${RESTART_WAIT:=60}"
 : "${REBOOT_WAIT:=90}"
 : "${MSMTP_ACCOUNT:=onecom}"
+: "${ALERTS_ENABLED:=0}"            # 0 = log-only (no e-mail); 1 = send via msmtp
 
 log(){ echo "$(date -u +%FT%TZ) [watchdog] $*"; }
 
@@ -35,6 +36,8 @@ sleep_s(){ sleep "$1"; }
 send_email(){ # $1 subject, $2 body
   printf 'To: %s\nSubject: %s\nContent-Type: text/plain; charset=UTF-8\n\n%s\n' \
     "$ALERT_TO" "$1" "${2:-}" | msmtp -a "$MSMTP_ACCOUNT" "$ALERT_TO"; }
+# notify_send: respect ALERTS_ENABLED (0 = log-only, no e-mail attempt)
+notify_send(){ if [ "${ALERTS_ENABLED:-0}" = "1" ]; then send_email "$1" "${2:-}"; else log "alert (suppressed, ALERTS_ENABLED=0): $1"; fi; }
 now_epoch(){ date +%s; }
 queued_count(){ : "${GH_QUEUED:=0}"; echo "${GH_QUEUED}"; }   # optional, refined later
 
@@ -91,14 +94,14 @@ notify(){
     last="$(state_get last_alert)"; last="${last:-0}"
     if [ "$prev" != "down" ]; then state_set down_since "$now"; fi
     if [ "$prev" != "down" ] || [ $((now - last)) -ge "$COOLDOWN_SEC" ]; then
-      send_email "🔴 ADZA CI-Runner LXC${LXC_ID} down — Self-Heal fehlgeschlagen" \
+      notify_send "🔴 ADZA CI-Runner LXC${LXC_ID} down — Self-Heal fehlgeschlagen" \
         "Self-Heal scheiterte. Zustand: $(classify). Wartende Runs: $(queued_count). Host: $(hostname)."
       state_set last_alert "$now"
     fi
     state_set status down
   else
     if [ "$prev" = "down" ]; then
-      send_email "✅ ADZA CI-Runner LXC${LXC_ID} wieder gesund" \
+      notify_send "✅ ADZA CI-Runner LXC${LXC_ID} wieder gesund" \
         "Runner ist wieder online. Zustand: $(classify)."
     fi
     state_set status healthy; state_set last_alert 0; state_set zero_ticks 0

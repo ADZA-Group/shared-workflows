@@ -80,6 +80,7 @@ heal >/dev/null; eq "0 runners busy=1 -> NO reboot" "$HEAL_LOG" "restart
 MAIL_LOG=""; send_email(){ MAIL_LOG+="MAIL:$1
 "; }
 NOW=1000000; now_epoch(){ echo "$NOW"; }
+ALERTS_ENABLED=1   # test the alert LOGIC (notify_send -> send_email); suppression tested at the end
 # keep classify cheap for the mail body
 MOCK_CS=running MOCK_CA=active MOCK_ONLINE=0
 state_set status healthy; state_set last_alert 0
@@ -122,5 +123,9 @@ do_start_container(){ HEAL_LOG+="start
 "; }   # start does NOT fix it (stays stopped)
 HEAL_LOG=""; MAIL_LOG=""; run_once >/dev/null
 case "$MAIL_LOG" in *"MAIL:🔴"*) ok "C: alert on heal-fail";; *) no "C: alert" "$MAIL_LOG" "🔴";; esac
+
+# ===== ALERTS_ENABLED=0 suppresses e-mail (log-only, no notification) =====
+ALERTS_ENABLED=0; state_set status healthy; MAIL_LOG=""; notify down >/dev/null
+eq "ALERTS off -> no mail (log-only)" "$MAIL_LOG" ""
 
 echo "----"; echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]
