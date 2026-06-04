@@ -156,6 +156,31 @@ on:
         type: number
         default: 3
         description: "Recent tagged GHCR versions to keep (reserved — wired in the validated tagged-prune phase)"
+      openapi-spec:
+        required: false
+        type: string
+        default: ""
+        description: "OpenAPI spec path/URL for schemathesis api-contract (empty = skip the job)"
+      api-boot-command:
+        required: false
+        type: string
+        default: ""
+        description: "Command to start the app for api-contract testing"
+      api-health-url:
+        required: false
+        type: string
+        default: ""
+        description: "Health URL polled before api-contract testing"
+      api-base-url:
+        required: false
+        type: string
+        default: ""
+        description: "Base URL of the running app for schemathesis (empty = derive from health-url origin)"
+      api-requirements:
+        required: false
+        type: string
+        default: ""
+        description: "Optional requirements file installed before api-contract boot"
 
 permissions:
   contents: read
@@ -524,6 +549,22 @@ jobs:
       runner-label: ${{ inputs.runner-label }}
     secrets: inherit
 
+  api-contract:
+    name: "📑 API Contract"
+    needs: [changes]
+    if: ${{ inputs.openapi-spec != '' }}
+    permissions:
+      contents: read
+    uses: adza-group/shared-workflows/.github/workflows/reusable-api-contract.yml@v1
+    with:
+      openapi-spec: ${{ inputs.openapi-spec }}
+      base-url: ${{ inputs.api-base-url }}
+      boot-command: ${{ inputs.api-boot-command }}
+      health-url: ${{ inputs.api-health-url }}
+      requirements: ${{ inputs.api-requirements }}
+      runner-label: ${{ inputs.runner-label }}
+    secrets: inherit
+
   frontend:
     name: "🎨 Frontend"
     needs: changes
@@ -742,7 +783,7 @@ jobs:
 
   telemetry:
     name: "📈 Telemetry"
-    needs: [changes, lint-python, lint-dockerfile, code-quality, dead-code, todo-tracker, license-check, commit-lint, security, test-matrix, property-tests, mutation, frontend, coverage, test-results, docker-build, verify-staging, require-staging-green, verify-prod, load-test, pr-summary, dast, prune-ghcr]
+    needs: [changes, lint-python, lint-dockerfile, code-quality, dead-code, todo-tracker, license-check, commit-lint, security, test-matrix, property-tests, mutation, api-contract, frontend, coverage, test-results, docker-build, verify-staging, require-staging-green, verify-prod, load-test, pr-summary, dast, prune-ghcr]
     if: ${{ always() }}
     runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 5
