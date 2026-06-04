@@ -4,12 +4,6 @@ name: "🧪 Smoke — API Contract"
 
 on:
   workflow_dispatch:
-  push:
-    branches: [dev]
-    paths:
-      - '.github/workflows/reusable-api-contract.yml'
-      - '.github/workflows/_smoke-api-contract.yml'
-      - 'tests/fixtures/api/**'
 
 permissions:
   contents: read
