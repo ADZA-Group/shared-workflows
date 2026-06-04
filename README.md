@@ -21,6 +21,7 @@ The goal: every app's `.github/workflows/build.yml` is a ~25-line caller of
 | `reusable-pipeline-analytics.yml` | scheduled CI success-rate / duration analytics |
 | `reusable-weekly-cleanup.yml` | scheduled run/artifact retention cleanup |
 | `reusable-config-ci.yml` | infra/config-only repos (compose only): yamllint + `docker compose config` + gitleaks + OPA/conftest on the compose; dual-gate, runner-label-driven |
+| `reusable-frontend.yml` | node lane: eslint + tsc + vitest + vite build + bundle-size gate + Lighthouse CI + **pa11y-ci accessibility gate** (dual-gate) |
 
 ## Composite Actions
 
@@ -115,6 +116,24 @@ jobs:
 
 Gates: yamllint (relaxed) · `docker compose config` · gitleaks · OPA/conftest on the compose.
 gitleaks is always hard; the rest dual-gate (advisory on PR/dev, blocking on main/tags).
+
+## Frontend accessibility & performance
+
+`reusable-frontend.yml` runs a **pa11y-ci accessibility gate** after build (dual-gate,
+advisory on PR/dev, blocking on main/tags):
+
+| Input | Default | Notes |
+|-------|---------|-------|
+| `a11y-enabled` | `true` | run pa11y-ci |
+| `a11y-url` | `""` | base URL to scan; empty = serve the build output locally |
+| `a11y-paths` | `"/"` | space-separated paths (e.g. `"/ /login /about"`) |
+| `a11y-threshold` | `0` | max pa11y errors per page |
+| `lighthouse-url` | `""` | Lighthouse CI target (empty = skip) |
+| `lighthouse-config` | `""` | path to a `lighthouserc.json` budget (empty = recommended preset) |
+
+A budget template lives at `tests/fixtures/frontend/lighthouserc.json` (perf ≥ 0.8,
+a11y ≥ 0.9). For server-rendered apps (Jinja/HTMX), point `a11y-url` at a deployed
+staging URL; for SPAs, leave it empty to scan the local build.
 
 ## Image signing & verification
 
