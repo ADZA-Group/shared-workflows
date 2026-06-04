@@ -53,6 +53,11 @@ on:
         required: false
         type: string
         default: "3.39.5"
+      hypothesis-pin:
+        required: false
+        type: string
+        default: "hypothesis<6.131.4"
+        description: "Compat pin: schemathesis 3.39.x breaks on hypothesis>=6.131.4 (_fallback kwarg). Set '' to skip."
       schemathesis-args:
         required: false
         type: string
@@ -83,7 +88,7 @@ jobs:
       - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1
         with:
           install-requirements: "false"
-          extra-packages: "schemathesis==${{ inputs.schemathesis-version }}"
+          extra-packages: "schemathesis==${{ inputs.schemathesis-version }} ${{ inputs.hypothesis-pin }}"
           cache-key-suffix: api-contract
 
       - name: Install app requirements
