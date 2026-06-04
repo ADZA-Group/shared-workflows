@@ -5,12 +5,6 @@ name: "🧪 Smoke — Frontend"
 
 on:
   workflow_dispatch:
-  push:
-    branches: [dev]
-    paths:
-      - '.github/workflows/reusable-frontend.yml'
-      - '.github/workflows/_smoke-frontend.yml'
-      - 'tests/fixtures/frontend/**'
 
 permissions:
   contents: read
