@@ -1,0 +1,123 @@
+# ═══════════════════════════════════════════════════════════════
+# Reusable Config-CI — ADZA-Group (infra/config-only repos)
+#
+# For repos that contain ONLY docker-compose.yml + scripts (no app code,
+# no tests, no Dockerfile, no frontend) — e.g. paperless, cloudflare.
+# Jobs (single job, sequential steps): yamllint (relaxed) · docker compose
+# config validation · gitleaks (secret scan) · OPA/conftest on the compose.
+# Dual-gate: advisory on PR/dev, blocking on main/tags.
+# Runner-label-driven (self-hosted-capable).
+#
+# Usage:
+#   uses: adza-group/shared-workflows/.github/workflows/reusable-config-ci.yml@v1
+#   with: { runner-label: '["ubuntu-latest"]' }
+#   secrets: inherit
+# ═══════════════════════════════════════════════════════════════
+
+name: "🧾 Config CI"
+
+on:
+  workflow_call:
+    inputs:
+      runner-label:
+        required: false
+        type: string
+        default: '["ubuntu-latest"]'
+        description: "JSON array of runner labels (override to self-hosted per repo)"
+      compose-glob:
+        required: false
+        type: string
+        default: "docker-compose*.yml"
+        description: "Glob for compose files validated + OPA-checked"
+      run-yamllint:
+        required: false
+        type: boolean
+        default: true
+      run-compose-validate:
+        required: false
+        type: boolean
+        default: true
+      run-gitleaks:
+        required: false
+        type: boolean
+        default: true
+      run-opa:
+        required: false
+        type: boolean
+        default: true
+      opa-blocking:
+        required: false
+        type: boolean
+        default: true
+        description: "OPA hard on main/tags; advisory on PR/dev regardless (dual-gate wrapper)"
+
+permissions:
+  contents: read
+
+jobs:
+  config:
+    name: "🧾 Config CI"
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          fetch-depth: 0   # gitleaks scans full history
+
+      - name: Yamllint (relaxed)
+        if: ${{ inputs.run-yamllint }}
+        continue-on-error: ${{ !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
+        run: |
+          python3 -m pip install --quiet --user yamllint || pip install --quiet yamllint
+          python3 -m yamllint -d relaxed . | tee yamllint.out
+          {
+            echo "## 🧾 Yamllint"
+            echo '```'
+            cat yamllint.out || echo "(clean)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Docker Compose config validation
+        if: ${{ inputs.run-compose-validate }}
+        continue-on-error: ${{ !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
+        env:
+          GLOB: ${{ inputs.compose-glob }}
+        run: |
+          touch .env
+          RC=0
+          shopt -s nullglob
+          FILES=( $GLOB )
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "::warning::no compose files matched '$GLOB'"
+          fi
+          for f in "${FILES[@]}"; do
+            echo "validating $f"
+            docker compose -f "$f" config --quiet || RC=$?
+          done
+          {
+            echo "## 🐳 Compose validation"
+            echo "| File | Result |"
+            echo "|------|--------|"
+            for f in "${FILES[@]}"; do echo "| \`$f\` | checked |"; done
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $RC
+
+      - name: Gitleaks (secret scan)
+        if: ${{ inputs.run-gitleaks }}
+        run: |
+          if ! command -v gitleaks >/dev/null 2>&1; then
+            curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz \
+              | sudo tar xz -C /usr/local/bin gitleaks || \
+              curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz \
+              | tar xz -C /usr/local/bin gitleaks
+          fi
+          gitleaks detect --source=. --no-banner --redact -v
+
+      - name: OPA / conftest (compose policy)
+        if: ${{ inputs.run-opa }}
+        continue-on-error: ${{ !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
+        uses: adza-group/shared-workflows/.github/actions/opa-policy@v1
+        with:
+          dockerfile: "Dockerfile.__none__"   # config repos have no Dockerfile → composite skips it
+          compose-glob: ${{ inputs.compose-glob }}
+          blocking: ${{ inputs.opa-blocking }}
