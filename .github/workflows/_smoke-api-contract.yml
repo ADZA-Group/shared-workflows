@@ -1,0 +1,26 @@
+# Smoke: boots the Flask fixture + runs schemathesis against its /openapi.json.
+# Proves the api-contract pipeline on ubuntu. Temp push:[dev] trigger reverted after green.
+name: "🧪 Smoke — API Contract"
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [dev]
+    paths:
+      - '.github/workflows/reusable-api-contract.yml'
+      - '.github/workflows/_smoke-api-contract.yml'
+      - 'tests/fixtures/api/**'
+
+permissions:
+  contents: read
+
+jobs:
+  api-contract:
+    uses: ./.github/workflows/reusable-api-contract.yml
+    with:
+      runner-label: '["ubuntu-latest"]'
+      openapi-spec: "http://127.0.0.1:5005/openapi.json"
+      base-url: "http://127.0.0.1:5005"
+      boot-command: "python tests/fixtures/api/app.py"
+      health-url: "http://127.0.0.1:5005/health"
+      requirements: "tests/fixtures/api/requirements.txt"
