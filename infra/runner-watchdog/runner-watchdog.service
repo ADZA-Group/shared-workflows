@@ -1,0 +1,11 @@
+[Unit]
+Description=ADZA CI-runner watchdog (LXC104 auto-heal + alert)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/runner-watchdog/watchdog.sh
+Nice=10
+# never hang a tick longer than ~4 min (sum of heal waits stays below this)
+TimeoutStartSec=240
