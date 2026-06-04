@@ -1,0 +1,17 @@
+# Smoke: validates reusable-config-ci.yml on ubuntu against tests/fixtures/config.
+# workflow_dispatch-only. To run on push during build-out, temporarily add a
+# push:[dev] trigger (revert after green) — see CLAUDE.md validation pattern.
+name: "smoke: config-ci"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    uses: ./.github/workflows/reusable-config-ci.yml
+    with:
+      runner-label: '["ubuntu-latest"]'
+      compose-glob: "tests/fixtures/config/docker-compose*.yml"
