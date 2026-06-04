@@ -84,6 +84,36 @@ on:
         type: number
         default: 80
         description: "Minimum Lighthouse performance score (0-100)"
+      lighthouse-config:
+        required: false
+        type: string
+        default: ""
+        description: "Path to a lighthouserc.json budget (empty = use built-in recommended preset)"
+      a11y-enabled:
+        required: false
+        type: boolean
+        default: true
+        description: "Run pa11y-ci accessibility checks after build"
+      a11y-url:
+        required: false
+        type: string
+        default: ""
+        description: "Base URL to a11y-scan (empty = serve the build output locally)"
+      a11y-paths:
+        required: false
+        type: string
+        default: "/"
+        description: "Space-separated paths appended to the base URL (e.g. '/ /login /about')"
+      a11y-threshold:
+        required: false
+        type: number
+        default: 0
+        description: "Max allowed pa11y errors per page before failing"
+      a11y-serve-port:
+        required: false
+        type: number
+        default: 4173
+        description: "Port for the local static server when a11y-url is empty"
 
 permissions:
   contents: read
@@ -171,10 +201,16 @@ jobs:
         env:
           LHCI_URL: ${{ inputs.lighthouse-url }}
           LHCI_BUDGET: ${{ inputs.lighthouse-budget-performance }}
+          LHCI_CONFIG: ${{ inputs.lighthouse-config }}
         run: |
           npm install -g @lhci/cli@0.14.x --silent
           lhci collect --url="$LHCI_URL" --numberOfRuns=1 --settings.chromeFlags="--no-sandbox"
-          SCORE=$(lhci assert --preset=lighthouse:recommended 2>/dev/null \
+          if [ -n "${LHCI_CONFIG:-}" ] && [ -f "${LHCI_CONFIG}" ]; then
+            ASSERT_ARGS="--config=${LHCI_CONFIG}"
+          else
+            ASSERT_ARGS="--preset=lighthouse:recommended"
+          fi
+          SCORE=$(lhci assert $ASSERT_ARGS 2>/dev/null \
             | grep -oE 'performance: [0-9]+' | grep -oE '[0-9]+' || echo 0)
           {
             echo "## 🔦 Lighthouse"
@@ -185,3 +221,63 @@ jobs:
             echo "| URL | ${LHCI_URL} |"
           } >> "$GITHUB_STEP_SUMMARY"
         continue-on-error: ${{ !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
+
+      - name: Accessibility (pa11y-ci)
+        if: ${{ inputs.a11y-enabled && (inputs.a11y-url != '' || inputs.run-build) }}
+        continue-on-error: ${{ !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
+        env:
+          A11Y_URL: ${{ inputs.a11y-url }}
+          A11Y_PATHS: ${{ inputs.a11y-paths }}
+          A11Y_THRESHOLD: ${{ inputs.a11y-threshold }}
+          A11Y_PORT: ${{ inputs.a11y-serve-port }}
+          OUT: ${{ inputs.build-output-dir }}
+        run: |
+          set -o pipefail
+          SERVER_PID=""
+          cleanup() { [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null || true; }
+          trap cleanup EXIT
+
+          if [ -z "$A11Y_URL" ]; then
+            if [ ! -d "$OUT" ]; then
+              echo "::warning::a11y: no build output '$OUT' and no a11y-url — skipping"
+              exit 0
+            fi
+            echo "serving '$OUT' on :$A11Y_PORT"
+            npx --yes serve -s "$OUT" -l "$A11Y_PORT" >/tmp/serve.log 2>&1 &
+            SERVER_PID=$!
+            BASE="http://localhost:${A11Y_PORT}"
+            for i in $(seq 1 30); do
+              curl -fsS "$BASE" >/dev/null 2>&1 && break
+              sleep 1
+            done
+          else
+            BASE="${A11Y_URL%/}"
+          fi
+
+          # Build the URL list + a pa11y-ci config with CI-safe Chrome flags.
+          URLS=""
+          for p in $A11Y_PATHS; do
+            case "$p" in
+              /*) URLS="$URLS \"${BASE}${p}\"," ;;
+              *)  URLS="$URLS \"${BASE}/${p}\"," ;;
+            esac
+          done
+          URLS="${URLS%,}"
+          cat > /tmp/.pa11yci.json <<JSON
+          {
+            "defaults": {
+              "threshold": ${A11Y_THRESHOLD},
+              "chromeLaunchConfig": { "args": ["--no-sandbox", "--disable-dev-shm-usage"] },
+              "timeout": 30000
+            },
+            "urls": [ ${URLS} ]
+          }
+          JSON
+          echo "pa11y-ci config:"; cat /tmp/.pa11yci.json
+          npx --yes pa11y-ci --config /tmp/.pa11yci.json | tee /tmp/pa11y.out
+          {
+            echo "## ♿ Accessibility (pa11y-ci)"
+            echo '```'
+            tail -n 30 /tmp/pa11y.out || echo "(no output)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
