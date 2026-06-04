@@ -1,0 +1,10 @@
+[Unit]
+Description=ADZA CI runner pre-warmer (min-floor by free GitHub minutes)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/runner-prewarmer/prewarmer.sh
+Nice=15
+TimeoutStartSec=60
