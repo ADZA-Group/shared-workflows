@@ -21,10 +21,16 @@ install -m 0644 runner-prewarmer.timer   /etc/systemd/system/
 systemctl daemon-reload
 ```
 
-## ⚠️ COORDINATION REQUIRED before enabling the timer
+## ✅ APPLIED 2026-06-04 — controller reads the floor (deployed + live)
 
-The pre-warmer only HELPS once the `runner-controller` reads the floor. Until then it writes a
-file nobody reads (harmless no-op). **Coordinate this 1-block change into
+> **Status:** the block below was inserted into `/opt/runner-controller/runner-controller.sh`
+> in `scale()` right after the demand→`DESIRED` computation (backup:
+> `runner-controller.sh.bak-prewarmer`). `bash -n` clean, controller restarted (4 runner units
+> unaffected), both timers live. Prewarmer + controller are wired end-to-end (floor logic 7/7
+> isolated tests; live floor=3 written + read, currently masked by demand=4). Kept here for
+> reference / re-apply after a controller update.
+
+The pre-warmer only HELPS once the `runner-controller` reads the floor. **This 1-block change into
 `/opt/runner-controller/runner-controller.sh`** (owned by the CI-power-up session), where it
 computes how many runners to keep / its scale-down minimum:
 
