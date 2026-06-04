@@ -22,6 +22,7 @@ The goal: every app's `.github/workflows/build.yml` is a ~25-line caller of
 | `reusable-weekly-cleanup.yml` | scheduled run/artifact retention cleanup |
 | `reusable-config-ci.yml` | infra/config-only repos (compose only): yamllint + `docker compose config` + gitleaks + OPA/conftest on the compose; dual-gate, runner-label-driven |
 | `reusable-frontend.yml` | node lane: eslint + tsc + vitest + vite build + bundle-size gate + Lighthouse CI + **pa11y-ci accessibility gate** (dual-gate) |
+| `reusable-api-contract.yml` | boots the app (`start-app` composite) + runs **schemathesis** property-based fuzzing against its OpenAPI spec; opt-in, skips when no `openapi-spec` (dual-gate) |
 
 ## Composite Actions
 
@@ -188,6 +189,17 @@ approval: upgrade to GitHub Team/Pro, then
 **Note on the watchtower deploy model:** deploys are watchtower pull-based (no gate-able
 deploy job). An environment on `verify-prod` gates the health-check; for true *pre-deploy*
 approval you would gate the `:latest` push in `docker-build` (separate change, not wired).
+
+## API contract testing (opt-in)
+
+`reusable-ci.yml` accepts `openapi-spec` (+ `api-boot-command`, `api-health-url`,
+`api-base-url`, `api-requirements`). When set, the `api-contract` job boots the app and
+runs **schemathesis** (property-based fuzzing) against the spec; when empty (the default)
+the job is **skipped**. Dual-gate.
+
+**Prerequisite (app-code, not CI):** the ADZA Flask apps expose no OpenAPI spec yet. To
+adopt: emit one (`flask-smorest`/`apispec` or a static `openapi.yaml`) and set
+`openapi-spec: "http://localhost:<port>/openapi.json"` + `api-boot-command` on the caller.
 
 ## Caveats / known gaps (in progress)
 
