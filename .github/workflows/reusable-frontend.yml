@@ -263,6 +263,10 @@ jobs:
             esac
           done
           URLS="${URLS%,}"
+          if [ -z "$URLS" ]; then
+            echo "::error::a11y: no paths to scan (a11y-paths is empty) — refusing vacuous pass"
+            exit 1
+          fi
           cat > /tmp/.pa11yci.json <<JSON
           {
             "defaults": {
