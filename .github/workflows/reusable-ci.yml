@@ -104,6 +104,16 @@ on:
         required: false
         type: string
         default: "frontend"
+      a11y-url:
+        required: false
+        type: string
+        default: ""
+        description: "Forwarded to the frontend lane: base URL for pa11y a11y scan (empty = serve build output locally)"
+      a11y-paths:
+        required: false
+        type: string
+        default: "/"
+        description: "Forwarded to the frontend lane: space-separated paths to a11y-scan"
       enable-property-tests:
         required: false
         type: boolean
@@ -575,6 +585,8 @@ jobs:
     with:
       frontend-dir: ${{ inputs.frontend-dir }}
       runner-label: ${{ inputs.runner-label }}
+      a11y-url: ${{ inputs.a11y-url }}
+      a11y-paths: ${{ inputs.a11y-paths }}
     secrets: inherit
 
   load-test:
