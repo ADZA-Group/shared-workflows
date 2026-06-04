@@ -56,8 +56,8 @@ on:
       hypothesis-pin:
         required: false
         type: string
-        default: "hypothesis<6.131.4"
-        description: "Compat pin: schemathesis 3.39.x breaks on hypothesis>=6.131.4 (_fallback kwarg). Set '' to skip."
+        default: "hypothesis==6.131.0"
+        description: "Compat pin: schemathesis 3.39.x breaks on hypothesis>=6.131.4 (_fallback kwarg). Exact == (no shell metachar, the composite expands extra-packages unquoted). Set '' to skip."
       schemathesis-args:
         required: false
         type: string
