@@ -1,0 +1,5 @@
+# Force LF on shell/unit files — CRLF would break the shebang/systemd parsing on the Linux host.
+*.sh           text eol=lf
+*.service      text eol=lf
+*.timer        text eol=lf
+.env.example   text eol=lf
