@@ -20,6 +20,7 @@ The goal: every app's `.github/workflows/build.yml` is a ~25-line caller of
 | `reusable-monitoring-dashboard.yml` | scheduled app + pipeline health dashboard |
 | `reusable-pipeline-analytics.yml` | scheduled CI success-rate / duration analytics |
 | `reusable-weekly-cleanup.yml` | scheduled run/artifact retention cleanup |
+| `reusable-config-ci.yml` | infra/config-only repos (compose only): yamllint + `docker compose config` + gitleaks + OPA/conftest on the compose; dual-gate, runner-label-driven |
 
 ## Composite Actions
 
@@ -90,6 +91,30 @@ than the caller's** — if the callee requests more, GitHub fails the run at **`
 | `multi-arch` | `false` | amd64+arm64 (arm64 currently scanned via the amd64 representative — see CAVEATS) |
 | `enable-push` | `true` | GHCR push on `push` events (false for build-only) |
 | `deploy-*` / verify | *(Phase 3b)* | deploy/verify tail not yet wired in the core orchestrator |
+
+## Config-only repos (paperless, cloudflare)
+
+Repos that contain only a `docker-compose.yml` (no app code/tests/Dockerfile) use the
+lightweight `reusable-config-ci.yml` instead of the full `reusable-ci.yml`:
+
+```yaml
+name: CI
+on:
+  push:         { branches: [main, dev] }
+  pull_request: { branches: [main] }
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  config:
+    uses: adza-group/shared-workflows/.github/workflows/reusable-config-ci.yml@v1
+    with:
+      runner-label: ${{ vars.RUNNER_LABEL || '["ubuntu-latest"]' }}
+    secrets: inherit
+```
+
+Gates: yamllint (relaxed) · `docker compose config` · gitleaks · OPA/conftest on the compose.
+gitleaks is always hard; the rest dual-gate (advisory on PR/dev, blocking on main/tags).
 
 ## Image signing & verification
 
