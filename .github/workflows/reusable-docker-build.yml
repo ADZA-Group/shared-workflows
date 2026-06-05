@@ -76,12 +76,11 @@ on:
       tag-config:
         required: false
         type: string
-        description: "docker/metadata-action tags block"
+        description: "docker/metadata-action tags block (deploy tags :staging/:latest werden ref-basiert vom Workflow ergänzt — NICHT hier definieren)"
         default: |
           type=ref,event=branch
           type=ref,event=tag
           type=sha,prefix={{branch}}-,format=short
-          type=raw,value=latest,enable={{is_default_branch}}
     outputs:
       image-tag:
         description: "Local CI image tag (single-arch, loaded)"
@@ -198,7 +197,13 @@ jobs:
         uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9  # v6.1.0
         with:
           images: ${{ inputs.image-name }}
-          tags: ${{ inputs.tag-config }}
+          # Deploy-Tags ref-basiert (NICHT {{is_default_branch}}: ADZA-Repos haben dev als
+          # Default-Branch → is_default_branch taggte :latest auf dev-Builds → Watchtower
+          # deployte dev-Images auf PROD; :staging wurde dagegen nie getaggt → Staging fror ein).
+          tags: |
+            ${{ inputs.tag-config }}
+            type=raw,value=staging,enable=${{ github.ref == 'refs/heads/dev' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
       - name: "Backup :latest -> :previous (main only)"
         if: ${{ inputs.push && github.ref == 'refs/heads/main' }}

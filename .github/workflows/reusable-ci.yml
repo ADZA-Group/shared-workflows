@@ -160,7 +160,7 @@ on:
         required: false
         type: boolean
         default: false
-        description: "Prune old untagged GHCR versions after a green deploy (opt-in per app — enable only after validating multi-arch arch-manifest safety, see Risk #2)"
+        description: "⚠️ VALIDIERT UNSICHER (2026-06-05, Rechnungsapp): buildx pusht mit provenance/SBOM IMMER einen OCI-Index — dessen Children (auch single-arch!) erscheinen in GHCR als untagged versions → der Sweep löscht sie und zerstört die im SELBEN Run gepushten Tags (manifest unknown / not found beim Pull). NICHT aktivieren, bis der Prune referenced-digest-aware ist (Risk #2)"
       ghcr-keep-versions:
         required: false
         type: number
