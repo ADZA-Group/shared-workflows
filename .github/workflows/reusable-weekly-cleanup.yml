@@ -21,12 +21,18 @@ on:
         required: false
         type: number
         default: 10
+      runner-label:
+        required: false
+        type: string
+        default: '["self-hosted", "linux", "proxmox"]'
 
 jobs:
   cleanup-runs:
     name: "🗑️ Clean CI Runs"
-    runs-on: [self-hosted, linux, proxmox]
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 10
+    permissions:
+      actions: write           # gh run list/delete
     steps:
       - name: "Delete failed + cancelled runs"
         env:
@@ -67,8 +73,9 @@ jobs:
 
   cleanup-runner:
     name: "🐳 Clean Runner"
-    runs-on: [self-hosted, linux, proxmox]
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 5
+    permissions: {}            # local docker/temp cleanup only — no token use
     steps:
       - name: "Docker cleanup"
         run: |

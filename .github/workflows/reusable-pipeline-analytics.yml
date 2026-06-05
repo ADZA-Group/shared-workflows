@@ -25,11 +25,18 @@ on:
         required: false
         type: number
         default: 7
+      runner-label:
+        required: false
+        type: string
+        default: '["self-hosted", "linux", "proxmox"]'
 
 jobs:
   analytics:
     name: "📊 Weekly Report"
-    runs-on: [self-hosted, linux, proxmox]
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 10
+    permissions:
+      actions: read            # gh api workflows + runs
     steps:
       - name: Fetch workflow runs
         id: data

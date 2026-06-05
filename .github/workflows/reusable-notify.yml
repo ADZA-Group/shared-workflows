@@ -53,6 +53,8 @@ jobs:
   notify:
     name: "🚨 Alert"
     runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 5
+    permissions: {}            # webhooks only — no GITHUB_TOKEN use
     steps:
       - name: Build alert context
         id: ctx

@@ -30,12 +30,19 @@ on:
         required: false
         type: number
         default: 7
+      runner-label:
+        required: false
+        type: string
+        default: '["self-hosted", "linux", "proxmox"]'
 
 jobs:
   dashboard:
     name: "📊 Dashboard"
-    runs-on: [self-hosted, linux, proxmox]
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 10
+    permissions:
+      actions: read            # gh api workflows + runs
+      packages: read           # gh api GHCR package versions
     steps:
       - name: "📊 Pipeline Health"
         env:

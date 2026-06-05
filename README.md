@@ -34,7 +34,6 @@ The goal: every app's `.github/workflows/build.yml` is a ~25-line caller of
 | `start-app` | background-launch an app + poll health, output PID |
 | `opa-policy` | conftest/OPA Rego checks on Dockerfile + compose |
 | `health-check` | endpoint polling + security-header validation |
-| `setup-python-env` | *(legacy — uses `actions/setup-python`, breaks on Debian-13 self-hosted; prefer `setup-python-deps`)* |
 
 ## Consuming `reusable-ci.yml`
 
