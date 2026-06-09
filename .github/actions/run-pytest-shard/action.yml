@@ -49,11 +49,15 @@ runs:
         else
           SELECT=(${{ inputs.test-paths }})
         fi
-        # Flaky mitigation: rerun failed tests (pytest-rerun-failures). Reruns appear in junit.
+        # Flaky mitigation: rerun failed tests (pytest-rerunfailures). Reruns appear in junit.
         RERUN=()
         if [ "${{ inputs.test-reruns }}" != "0" ]; then
-          pip install -q pytest-rerun-failures || echo "::warning::pytest-rerun-failures install failed — running without reruns"
-          python -c "import pytest_rerunfailures" 2>/dev/null && RERUN=(--reruns "${{ inputs.test-reruns }}" --reruns-delay 1)
+          pip install -q pytest-rerunfailures || echo "::warning::pytest-rerunfailures install failed — flaky reruns disabled"
+          if python -c "import pytest_rerunfailures" 2>/dev/null; then
+            RERUN=(--reruns "${{ inputs.test-reruns }}" --reruns-delay 1)
+          else
+            echo "::warning::pytest_rerunfailures not importable — running WITHOUT --reruns"
+          fi
         fi
         pytest "${SELECT[@]}" \
           --timeout=${{ inputs.timeout }} \
