@@ -137,7 +137,9 @@ jobs:
         env:
           E2E_CMD: ${{ inputs.e2e-command }}
         run: |
-          eval "$E2E_CMD --retries=2"
+          # Retries are configured by the app's playwright.config (e.g. retries: 2).
+          # Don't hard-append --retries here — it would override a caller's explicit flag.
+          eval "$E2E_CMD"
 
       - name: Upload Playwright report
         if: always()

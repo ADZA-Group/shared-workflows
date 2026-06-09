@@ -678,8 +678,12 @@ jobs:
   docker-build:
     name: "🐳 Build"
     needs: [changes, lint-python, test-matrix, security, coverage, e2e]
-    # lint-dockerfile + license-check are advisory (don't gate the build); lint-python
-    # + tests are the hard gate. Keeps an advisory hadolint finding from skipping build.
+    # Hard deploy gate (C1): lint-python + tests + security + coverage + e2e must pass
+    # before the image builds/pushes. `security == 'success'` is fail-closed (a skipped or
+    # failed security never lets a push through) — safe because security & docker-build share
+    # the same trigger envelope (python||docker||frontend||ci), so security is never skipped
+    # while docker-build runs. coverage/e2e use `!= 'failure'` (allow skipped: non-py / opt-out).
+    # lint-dockerfile + license-check stay advisory (don't gate the build).
     if: >-
       ${{ always() &&
       needs.lint-python.result != 'failure' &&
