@@ -1,13 +1,6 @@
 name: "🔥 smoke: e2e"
 on:
   workflow_dispatch: {}
-  # TEMP for validation (remove after green):
-  push:
-    branches: [dev]
-    paths:
-      - ".github/workflows/reusable-e2e.yml"
-      - ".github/workflows/_smoke-e2e.yml"
-      - "tests/fixtures/e2e/**"
 
 permissions:
   contents: read
