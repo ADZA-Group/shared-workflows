@@ -617,7 +617,9 @@ jobs:
       (needs.changes.outputs.python == 'true' || needs.changes.outputs.frontend == 'true' || needs.changes.outputs.ci == 'true') }}
     permissions:
       contents: read
-    uses: adza-group/shared-workflows/.github/workflows/reusable-e2e.yml@v1
+    # @dev during build-out: reusable-e2e.yml is new and not yet at the v1 tag.
+    # T8 release MUST flip this to @v1 before tagging v1.6.0 (else non-hermetic).
+    uses: adza-group/shared-workflows/.github/workflows/reusable-e2e.yml@dev
     with:
       runner-label: ${{ inputs.runner-label }}
       python-version: ${{ inputs.python-version }}
