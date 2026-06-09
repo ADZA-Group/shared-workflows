@@ -1,7 +1,7 @@
 """Minimal Flask fixture exposing an OpenAPI 3.0 spec for the api-contract smoke.
 Deliberately robust: every path returns a spec-conformant response and never 500s,
 so `schemathesis run` against it is GREEN (proves the CI pipeline, not app bugs)."""
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify
 
 app = Flask(__name__)
 
