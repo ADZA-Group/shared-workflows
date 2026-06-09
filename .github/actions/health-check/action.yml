@@ -116,12 +116,16 @@ runs:
         EXPECTED: ${{ inputs.expected-version }}
         VURL: ${{ inputs.version-url != '' && inputs.version-url || inputs.url }}
       run: |
-        BODY=$(curl -s --max-time 10 "$VURL" 2>/dev/null || echo "")
-        HDR=$(curl -sI --max-time 10 "$VURL" 2>/dev/null | tr -d '\r' \
-              | awk -F': ' 'tolower($1)=="x-app-version"{print $2}')
+        # Single request: dump response headers to a file, body to stdout (no TOCTOU,
+        # half the latency vs separate GET+HEAD). Fallbacks set GOT="" explicitly so a
+        # missing python3 / parse error surfaces as "no version" (exit 1), never a false pass.
+        HDRS=$(mktemp)
+        BODY=$(curl -s -D "$HDRS" --max-time 10 "$VURL" 2>/dev/null) || BODY=""
+        HDR=$(tr -d '\r' < "$HDRS" | awk -F': ' 'tolower($1)=="x-app-version"{print $2}')
+        rm -f "$HDRS"
         GOT=$(printf '%s' "$BODY" | python3 -c \
           "import sys,json; s=sys.stdin.read(); d=json.loads(s) if s.strip() else {}; print(d.get('sha') or d.get('version') or '')" \
-          2>/dev/null || true)
+          2>/dev/null) || GOT=""
         [ -z "$GOT" ] && GOT="$HDR"
         if [ -z "$GOT" ]; then
           echo "::error::version-assert: no sha/version at $VURL (expected ${EXPECTED:0:7}). App must expose it -- see README 'Version App-Contract'."
