@@ -80,3 +80,13 @@ Each phase: its own `writing-plans` → `executing-plans`/`subagent-driven-devel
 - Renovate — Dependabot already covers dependency updates.
 - Visual-regression (Percy/Chromatic) — paid SaaS; deferred.
 - Multi-arch images — dropped (amd64-only; prod LXCs are amd64).
+
+### Phase G — e2e (Playwright, pre-merge) [NACHGETRAGEN 2026-06-09]
+
+Beim Original-Audit übersehen: RecyclageApp hatte vor der P4-Migration eine Playwright-Suite
+(commit `0af76c9`), die beim Umstieg auf den thin caller (`b176c29`) verloren ging. Phase G stellt
+sie als opt-in Unified-Job wieder her: `reusable-e2e.yml` (Playwright-Container + `start-app`-Boot,
+postgres/redis, dual-gate). Aktivierung per-App via `enable-e2e` + `e2e-boot-command` + Playwright-Specs.
+Design: `docs/superpowers/specs/2026-06-09-ci-deploy-gate-c2-e2e-design.md`. Empirisch validiert
+2026-06-09 (`_smoke-e2e` grün auf ubuntu; Full-Orchestrator-Smoke `_smoke-ci` grün, docker-build läuft
+durch die neuen Gates).

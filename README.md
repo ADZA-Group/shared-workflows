@@ -205,3 +205,20 @@ adopt: emit one (`flask-smorest`/`apispec` or a static `openapi.yaml`) and set
 - **Multi-arch:** arm64 layers are not separately Trivy-scanned (amd64 is the gated representative). Decide per-arch scanning before relying on `multi-arch: true` for security gating.
 - **Self-hosted matrix + service containers:** the 4 org runners share one host/Docker daemon; concurrent test shards map the same host ports (5432/6379) and can collide. Validate multi-shard runs before relying on high shard counts (single-shard is safe).
 - **Deploy tail** (deploy-staging / verify-staging / require-staging-green / verify-prod + rollback), the **frontend lane**, **DAST**, **mutation testing**, and **release automation** are planned phases, not yet in the core orchestrator.
+
+### Version App-Contract (C2, opt-in)
+Damit `verify-staging`/`verify-prod` prüfen, dass das NEUE Image läuft (nicht nur HTTP 200), muss die App
+ihre Git-SHA ausgeben: `GET /health → {"status":"ok","sha":"<GIT_SHA>"}` (oder Header `X-App-Version`).
+SHA via Docker-Build-Arg/ENV ins Image. Dann im Caller `staging-version-url`/`prod-version-url` setzen —
+ohne diese Inputs bleibt das Verhalten 200-only (inert).
+
+### e2e (Phase G, opt-in)
+`enable-e2e: true` + `e2e-boot-command` + `e2e-health-url` + Playwright-Specs unter `e2e/` (package.json
+pinnt `@playwright/test` passend zum Container-Image, aktuell `1.60.0`). Läuft pre-merge hermetisch
+(postgres/redis + `start-app` im `mcr.microsoft.com/playwright`-Container), dual-gate (advisory dev, hart main).
+
+### Branch-Pflicht (C1)
+`main` NUR per PR befüllen (kein `git push` direkt). Branch-Protection-Required-Checks müssen
+`gitleaks`, `bandit`, `coverage`, `test-matrix` listen — die Workflow-DAG gatet den GHCR-Push erst seit
+C1-It.1 mit (`docker-build.needs` umfasst jetzt security+coverage+e2e, fail-closed), der vollständige
+Staging→Prod-Gate kommt mit C1-It.2 (Candidate-Promotion).

@@ -12,6 +12,17 @@
 > **Phase D ✅ released (v1.5.6):** `reusable-api-contract.yml` (schemathesis property-based fuzzing; `start-app` composite + dual-gate). Opt-in `openapi-spec`-Input in `reusable-ci.yml` → `api-contract`-Job, **skip wenn leer** (alle aktuellen Apps → skipped, kein OpenAPI-Spec). Smoke `_smoke-api-contract.yml` grün auf ubuntu gegen Flask-Fixture mit `/openapi.json` (schemathesis-Step `success`). **⚠️ App-Code-Folgearbeit (NICHT CI):** Apps müssen erst ein OpenAPI-Spec emittieren (flask-smorest/apispec) bevor api-contract greift. Plan: `docs/superpowers/plans/2026-06-04-ci-powerup-phaseD-api-contract.md`.
 > **🏁 CI-POWER-UP KOMPLETT (A–F alle released):** A=v1.5.0 (diff-cov+flaky) · B=v1.5.1 (cosign fleet) · C=v1.5.4 (a11y) · D=v1.5.6 (api-contract) · E=v1.5.5 (env+concurrency) · F=v1.5.3 (config-CI). `@v1`=v1.5.6.
 >
+> **✅ 2026-06-09 VERIFIZIERT (Audit + git) + AUDIT-HÄRTUNG auf `dev`:** `git tag` zeigt v1.5.0–v1.5.7,
+> `v1`→v1.5.7 → A–F sind real released; api-contract (Phase D) ist gebaut+verdrahtet (skippt nur mangels
+> App-OpenAPI-Spec). **Neu auf `dev` (Spec/Plan `2026-06-09-ci-deploy-gate-c2-e2e`), empirisch ubuntu-validiert:**
+> B1 (`pytest-rerunfailures`-Fix), C1-It.1 (security+coverage+e2e in `docker-build.needs`, coverage dual,
+> fail-closed), C2 (opt-in version-assert), **Phase G** (`reusable-e2e.yml`, opt-in). Audit-Befunde M1
+> (SHA-Pin Floating-Actions) + N1 (toter `setup-python-env`) wurden parallel in `baaddff` erledigt; zusätzlich
+> `_smoke-ci` `actions:read` + 2 api-Fixture-Lint-Fixes. **OFFEN (Resume):** (a) **T8-Release**: e2e-Ref in
+> `reusable-ci.yml` von `@dev`→`@v1` flippen, dann `v1.6.0` taggen + `@v1` force-moven; (b) **C1-It.2** =
+> Candidate-Tag-Promotion (echtes Staging→Prod-Gate; `:latest` wird noch im build-Job gepusht); (c) C2/e2e
+> App-Aktivierung pro Repo (`/health`-SHA bzw. Playwright-Specs); (d) PR-only-to-main als Branch-Protection-Pflicht.
+>
 > **▶️ RESUME-PUNKT (2026-06-03) — Self-Hosted-CI-Umbau IMPLEMENTIERT (v1.4.1+v1.4.2):** GitHub-Actions-Gratis-Minuten waren
 > erschöpft (`ADZA-Group` 2126/2000, $0 Spend) → hosted-Runner org-weit geblockt. **Fix = Fleet-CI voll self-hosted-fähig gemacht:**
 > 1. `decide-runner`-Fallback invertiert (kein-PAT / Billing-unlesbar / Minuten-niedrig → **self-hosted** statt hosted) in allen 4 App-Callern + dev→main.
