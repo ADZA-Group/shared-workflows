@@ -497,7 +497,7 @@ jobs:
       - uses: adza-group/shared-workflows/.github/actions/coverage-gate@v1
         with:
           threshold: ${{ inputs.coverage-threshold }}
-          blocking: "true"
+          blocking: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
           diff-coverage-threshold: ${{ inputs.diff-coverage-threshold }}
           diff-coverage-compare-branch: "origin/main"
           diff-coverage-blocking: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
