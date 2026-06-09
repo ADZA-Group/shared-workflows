@@ -191,6 +191,39 @@ on:
         type: string
         default: ""
         description: "Optional requirements file installed before api-contract boot"
+      enable-e2e:
+        required: false
+        type: boolean
+        default: false
+        description: "Enable the pre-merge Playwright e2e job (opt-in; needs e2e-boot-command + e2e-health-url)"
+      e2e-boot-command:
+        required: false
+        type: string
+        default: ""
+        description: "Foreground command to start the app for e2e (uses the venv on PATH)"
+      e2e-health-url:
+        required: false
+        type: string
+        default: ""
+        description: "Health URL polled before e2e (localhost:<port>)"
+      e2e-dir:
+        required: false
+        type: string
+        default: "e2e"
+      e2e-command:
+        required: false
+        type: string
+        default: "npx playwright test"
+      staging-version-url:
+        required: false
+        type: string
+        default: ""
+        description: "C2: URL reporting running version on staging (empty = 200-only verify)"
+      prod-version-url:
+        required: false
+        type: string
+        default: ""
+        description: "C2: URL reporting running version on prod (empty = 200-only verify)"
 
 permissions:
   contents: read
@@ -575,6 +608,28 @@ jobs:
       runner-label: ${{ inputs.runner-label }}
     secrets: inherit
 
+  e2e:
+    name: "🎭 E2E"
+    needs: [changes, test-matrix]
+    if: >-
+      ${{ inputs.enable-e2e && inputs.e2e-boot-command != '' &&
+      needs.test-matrix.result == 'success' &&
+      (needs.changes.outputs.python == 'true' || needs.changes.outputs.frontend == 'true' || needs.changes.outputs.ci == 'true') }}
+    permissions:
+      contents: read
+    uses: adza-group/shared-workflows/.github/workflows/reusable-e2e.yml@v1
+    with:
+      runner-label: ${{ inputs.runner-label }}
+      python-version: ${{ inputs.python-version }}
+      postgres-version: ${{ inputs.postgres-version }}
+      boot-command: ${{ inputs.e2e-boot-command }}
+      health-url: ${{ inputs.e2e-health-url }}
+      e2e-dir: ${{ inputs.e2e-dir }}
+      e2e-command: ${{ inputs.e2e-command }}
+      test-env: ${{ inputs.test-env }}
+      install-system-deps: ${{ inputs.install-system-deps }}
+    secrets: inherit
+
   frontend:
     name: "🎨 Frontend"
     needs: changes
@@ -622,12 +677,15 @@ jobs:
 
   docker-build:
     name: "🐳 Build"
-    needs: [changes, lint-python, test-matrix]
+    needs: [changes, lint-python, test-matrix, security, coverage, e2e]
     # lint-dockerfile + license-check are advisory (don't gate the build); lint-python
     # + tests are the hard gate. Keeps an advisory hadolint finding from skipping build.
     if: >-
       ${{ always() &&
       needs.lint-python.result != 'failure' &&
+      needs.security.result == 'success' &&
+      needs.coverage.result != 'failure' &&
+      needs.e2e.result != 'failure' &&
       (needs.test-matrix.result == 'success' || needs.test-matrix.result == 'skipped') &&
       (needs.changes.outputs.any_code == 'true' || needs.changes.outputs.docker == 'true' || needs.changes.outputs.ci == 'true') }}
     permissions:
@@ -677,6 +735,8 @@ jobs:
           max-retries: "40"
           retry-delay: "30"
           check-security-headers: "true"
+          version-url: ${{ inputs.staging-version-url }}
+          expected-version: ${{ inputs.staging-version-url != '' && github.sha || '' }}
 
       - name: Auto-rollback on failure
         if: steps.staging-check.outcome == 'failure'
@@ -741,6 +801,8 @@ jobs:
           url: ${{ inputs.prod-url }}
           max-retries: "40"
           retry-delay: "30"
+          version-url: ${{ inputs.prod-version-url }}
+          expected-version: ${{ inputs.prod-version-url != '' && github.sha || '' }}
 
       - name: Auto-rollback on failure
         if: steps.prod-check.outcome == 'failure'
@@ -795,7 +857,7 @@ jobs:
 
   telemetry:
     name: "📈 Telemetry"
-    needs: [changes, lint-python, lint-dockerfile, code-quality, dead-code, todo-tracker, license-check, commit-lint, security, test-matrix, property-tests, mutation, api-contract, frontend, coverage, test-results, docker-build, verify-staging, require-staging-green, verify-prod, load-test, pr-summary, dast, prune-ghcr]
+    needs: [changes, lint-python, lint-dockerfile, code-quality, dead-code, todo-tracker, license-check, commit-lint, security, test-matrix, property-tests, mutation, api-contract, e2e, frontend, coverage, test-results, docker-build, verify-staging, require-staging-green, verify-prod, load-test, pr-summary, dast, prune-ghcr]
     if: ${{ always() }}
     runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 5
@@ -812,6 +874,7 @@ jobs:
             echo "| lint-python | ${{ needs.lint-python.result }} |"
             echo "| security | ${{ needs.security.result }} |"
             echo "| test-matrix | ${{ needs.test-matrix.result }} |"
+            echo "| e2e | ${{ needs.e2e.result }} |"
             echo "| coverage | ${{ needs.coverage.result }} |"
             echo "| test-results | ${{ needs.test-results.result }} |"
             echo "| docker-build | ${{ needs.docker-build.result }} |"
