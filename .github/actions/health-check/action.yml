@@ -32,6 +32,14 @@ inputs:
     description: "Expected HTTP status code"
     required: false
     default: "200"
+  expected-version:
+    description: "If set (e.g. github.sha), assert the running app reports this version/sha. Empty = skip (legacy 200-only)."
+    required: false
+    default: ""
+  version-url:
+    description: "URL that returns the running version (JSON .sha/.version or X-App-Version header). Empty = use 'url'."
+    required: false
+    default: ""
 
 outputs:
   status:
@@ -100,3 +108,27 @@ runs:
         if [ "$FAIL" = "1" ]; then
           echo "::warning::Some security headers are missing"
         fi
+
+    - name: Version assert (running image == built image)
+      if: inputs.expected-version != ''
+      shell: bash
+      env:
+        EXPECTED: ${{ inputs.expected-version }}
+        VURL: ${{ inputs.version-url != '' && inputs.version-url || inputs.url }}
+      run: |
+        BODY=$(curl -s --max-time 10 "$VURL" 2>/dev/null || echo "")
+        HDR=$(curl -sI --max-time 10 "$VURL" 2>/dev/null | tr -d '\r' \
+              | awk -F': ' 'tolower($1)=="x-app-version"{print $2}')
+        GOT=$(printf '%s' "$BODY" | python3 -c \
+          "import sys,json; s=sys.stdin.read(); d=json.loads(s) if s.strip() else {}; print(d.get('sha') or d.get('version') or '')" \
+          2>/dev/null || true)
+        [ -z "$GOT" ] && GOT="$HDR"
+        if [ -z "$GOT" ]; then
+          echo "::error::version-assert: no sha/version at $VURL (expected ${EXPECTED:0:7}). App must expose it -- see README 'Version App-Contract'."
+          exit 1
+        fi
+        if [ "${GOT:0:7}" != "${EXPECTED:0:7}" ]; then
+          echo "::error::Watchtower has not deployed the new image: running ${GOT:0:7}, expected ${EXPECTED:0:7}"
+          exit 1
+        fi
+        echo "version ${GOT:0:7} matches expected ${EXPECTED:0:7}"
