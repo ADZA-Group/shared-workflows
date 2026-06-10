@@ -224,6 +224,11 @@ on:
         type: string
         default: ""
         description: "C2: URL reporting running version on prod (empty = 200-only verify)"
+      enforce-branch-policy:
+        required: false
+        type: boolean
+        default: true
+        description: "Hard gate: main pushes must come via dev (ff- or --no-ff-merge); violations block docker-build/promote"
 
 permissions:
   contents: read
@@ -265,6 +270,31 @@ jobs:
               - 'frontend/**'
             ci:
               - '.github/**'
+
+  branch-policy:
+    name: "🛡️ Branch Policy"
+    if: ${{ inputs.enforce-branch-policy && github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          fetch-depth: 0
+      - name: Enforce dev -> main merge flow
+        run: |
+          git fetch origin dev --quiet || { echo "::error::cannot fetch origin/dev"; exit 1; }
+          HEAD_SHA=$(git rev-parse HEAD)
+          if git merge-base --is-ancestor "$HEAD_SHA" origin/dev; then
+            echo "✅ main HEAD liegt auf dev (fast-forward merge) — policy ok"
+            exit 0
+          fi
+          P2=$(git rev-parse "${HEAD_SHA}^2" 2>/dev/null || true)
+          if [ -n "$P2" ] && git merge-base --is-ancestor "$P2" origin/dev; then
+            echo "✅ main HEAD ist Merge mit dev als zweitem Parent (--no-ff/PR) — policy ok"
+            exit 0
+          fi
+          echo "::error::Branch policy violated: main wurde nicht über dev befüllt. Iron Law: dev -> Staging grün -> main. Heilung: Änderung auf dev landen, Staging verifizieren, dann dev -> main mergen."
+          exit 1
 
   lint-python:
     name: "🐍 Lint (ruff)"
@@ -677,7 +707,7 @@ jobs:
 
   docker-build:
     name: "🐳 Build"
-    needs: [changes, lint-python, test-matrix, security, coverage, e2e]
+    needs: [changes, lint-python, test-matrix, security, coverage, e2e, branch-policy]
     # Hard deploy gate (C1): lint-python + tests + security + coverage + e2e must pass
     # before the image builds/pushes. `security == 'success'` is fail-closed (a skipped or
     # failed security never lets a push through) — safe because security & docker-build share
@@ -690,6 +720,7 @@ jobs:
       needs.security.result == 'success' &&
       needs.coverage.result != 'failure' &&
       needs.e2e.result != 'failure' &&
+      (needs.branch-policy.result == 'success' || needs.branch-policy.result == 'skipped') &&
       (needs.test-matrix.result == 'success' || needs.test-matrix.result == 'skipped') &&
       (needs.changes.outputs.any_code == 'true' || needs.changes.outputs.docker == 'true' || needs.changes.outputs.ci == 'true') }}
     permissions:
@@ -861,7 +892,7 @@ jobs:
 
   telemetry:
     name: "📈 Telemetry"
-    needs: [changes, lint-python, lint-dockerfile, code-quality, dead-code, todo-tracker, license-check, commit-lint, security, test-matrix, property-tests, mutation, api-contract, e2e, frontend, coverage, test-results, docker-build, verify-staging, require-staging-green, verify-prod, load-test, pr-summary, dast, prune-ghcr]
+    needs: [changes, lint-python, lint-dockerfile, code-quality, dead-code, todo-tracker, license-check, commit-lint, security, test-matrix, property-tests, mutation, api-contract, e2e, frontend, coverage, test-results, docker-build, branch-policy, verify-staging, require-staging-green, verify-prod, load-test, pr-summary, dast, prune-ghcr]
     if: ${{ always() }}
     runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 5
@@ -876,6 +907,7 @@ jobs:
             echo "| Job | Result |"
             echo "|-----|--------|"
             echo "| lint-python | ${{ needs.lint-python.result }} |"
+            echo "| branch-policy | ${{ needs.branch-policy.result }} |"
             echo "| security | ${{ needs.security.result }} |"
             echo "| test-matrix | ${{ needs.test-matrix.result }} |"
             echo "| e2e | ${{ needs.e2e.result }} |"
