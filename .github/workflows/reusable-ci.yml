@@ -114,6 +114,11 @@ on:
         type: string
         default: "/"
         description: "Forwarded to the frontend lane: space-separated paths to a11y-scan"
+      a11y-threshold:
+        required: false
+        type: number
+        default: 0
+        description: "Forwarded to the frontend lane: max allowed pa11y errors per page (ratchet for known debt; 0 = strict)"
       enable-property-tests:
         required: false
         type: boolean
@@ -683,6 +688,7 @@ jobs:
       runner-label: ${{ inputs.runner-label }}
       a11y-url: ${{ inputs.a11y-url }}
       a11y-paths: ${{ inputs.a11y-paths }}
+      a11y-threshold: ${{ inputs.a11y-threshold }}
     secrets: inherit
 
   load-test:
