@@ -247,11 +247,17 @@ jobs:
       contents: read
       pull-requests: read   # dorny/paths-filter queries the API; without this → "Resource not accessible by integration"
     outputs:
-      python: ${{ steps.filter.outputs.python }}
-      docker: ${{ steps.filter.outputs.docker }}
-      frontend: ${{ steps.filter.outputs.frontend }}
-      ci: ${{ steps.filter.outputs.ci }}
-      any_code: ${{ steps.filter.outputs.python == 'true' || steps.filter.outputs.docker == 'true' || steps.filter.outputs.frontend == 'true' }}
+      # Promote-Override (v1.7.1): jeder main-PUSH validiert VOLL. Ein policy-konformer
+      # dev→main-Merge hat oft einen LEEREN dev...main-Diff (merge-base = dev-HEAD) →
+      # Filter melden false → test/security kaskaden-skippen → docker-build (fail-closed
+      # auf security=='success') skippt → require-staging-green liest verify-staging=skipped
+      # und blockt den Promote. Incident: Rechnungsapp Run 27258300405 (2026-06-10).
+      # Path-Filter bleiben reine Optimierung für dev-/PR-Iteration.
+      python: ${{ steps.filter.outputs.python == 'true' || (github.ref == 'refs/heads/main' && github.event_name == 'push') }}
+      docker: ${{ steps.filter.outputs.docker == 'true' || (github.ref == 'refs/heads/main' && github.event_name == 'push') }}
+      frontend: ${{ steps.filter.outputs.frontend == 'true' || (github.ref == 'refs/heads/main' && github.event_name == 'push') }}
+      ci: ${{ steps.filter.outputs.ci == 'true' || (github.ref == 'refs/heads/main' && github.event_name == 'push') }}
+      any_code: ${{ steps.filter.outputs.python == 'true' || steps.filter.outputs.docker == 'true' || steps.filter.outputs.frontend == 'true' || (github.ref == 'refs/heads/main' && github.event_name == 'push') }}
       start_time: ${{ steps.t.outputs.epoch }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
