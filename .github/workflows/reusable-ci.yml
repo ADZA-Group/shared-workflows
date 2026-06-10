@@ -733,9 +733,7 @@ jobs:
       packages: write       # GHCR push
       id-token: write        # cosign keyless OIDC
       attestations: write    # SLSA build provenance
-    # TEMP @dev during build-out: the gated-promotion input doesn't exist at the v1 tag yet.
-    # T7 release MUST flip this back to @v1 before tagging v1.7.0 (else non-hermetic).
-    uses: adza-group/shared-workflows/.github/workflows/reusable-docker-build.yml@dev
+    uses: adza-group/shared-workflows/.github/workflows/reusable-docker-build.yml@v1
     with:
       image-name: ${{ inputs.image-name != '' && inputs.image-name || format('ghcr.io/adza-group/{0}', inputs.app-name) }}
       push: ${{ inputs.enable-push && github.event_name == 'push' }}
