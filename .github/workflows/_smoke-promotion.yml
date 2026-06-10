@@ -1,0 +1,77 @@
+name: "🔥 smoke: promotion"
+on:
+  workflow_dispatch: {}
+  # TEMP for validation (remove after green):
+  push:
+    branches: [dev]
+    paths:
+      - ".github/workflows/_smoke-promotion.yml"
+      - ".github/workflows/reusable-docker-build.yml"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  policy-logic:
+    name: "🛡️ policy ancestry logic"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: 3 synthetic cases (ff PASS / no-ff PASS / direct FAIL)
+        run: |
+          set -e
+          check() {
+            cd "$1"
+            local verdict=FAIL
+            HEAD_SHA=$(git rev-parse HEAD)
+            if git merge-base --is-ancestor "$HEAD_SHA" dev; then verdict=PASS
+            else
+              P2=$(git rev-parse "${HEAD_SHA}^2" 2>/dev/null || true)
+              if [ -n "$P2" ] && git merge-base --is-ancestor "$P2" dev; then verdict=PASS; fi
+            fi
+            cd ..; echo "$verdict"
+          }
+          G="git -c user.name=t -c user.email=t@t"
+          mk() { mkdir "$1"; cd "$1"; git init -q -b dev; $G commit -q --allow-empty -m base; cd ..; }
+          # Case 1: fast-forward (main HEAD == dev commit)
+          mk r1; cd r1; git checkout -q -b main dev; cd ..
+          [ "$(check r1)" = "PASS" ] || { echo "::error::case1 ff expected PASS"; exit 1; }
+          # Case 2: --no-ff merge of dev into diverged main
+          mk r2; cd r2; git checkout -q -b main; $G commit -q --allow-empty -m old-main
+          git checkout -q dev; $G commit -q --allow-empty -m feat
+          git checkout -q main; $G merge -q --no-ff dev -m merge-dev; cd ..
+          [ "$(check r2)" = "PASS" ] || { echo "::error::case2 no-ff expected PASS"; exit 1; }
+          # Case 3: direct commit on main (violation)
+          mk r3; cd r3; git checkout -q -b main dev; $G commit -q --allow-empty -m direct; cd ..
+          [ "$(check r3)" = "FAIL" ] || { echo "::error::case3 direct expected FAIL"; exit 1; }
+          echo "✅ all 3 policy cases behave as designed"
+
+  retag-mechanics:
+    name: "🚀 candidate->latest retag"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2  # v3.10.0
+      - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee  # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build + push candidate
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7.2.0
+        with:
+          context: tests/fixtures/docker
+          file: tests/fixtures/docker/Dockerfile
+          push: true
+          tags: ghcr.io/adza-group/shared-workflows-smoke:candidate-${{ github.sha }}
+      - name: Promote + assert digest equality
+        run: |
+          IMG="ghcr.io/adza-group/shared-workflows-smoke"
+          docker buildx imagetools create --tag "${IMG}:latest-smoke" "${IMG}:candidate-${{ github.sha }}"
+          D1=$(docker buildx imagetools inspect "${IMG}:candidate-${{ github.sha }}" --format '{{json .Manifest.Digest}}')
+          D2=$(docker buildx imagetools inspect "${IMG}:latest-smoke" --format '{{json .Manifest.Digest}}')
+          echo "candidate=$D1  latest-smoke=$D2"
+          [ -n "$D1" ] && [ "$D1" = "$D2" ] || { echo "::error::digest mismatch after retag"; exit 1; }
+          echo "✅ digest-stable promotion verified"
