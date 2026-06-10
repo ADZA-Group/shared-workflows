@@ -217,8 +217,20 @@ ohne diese Inputs bleibt das Verhalten 200-only (inert).
 pinnt `@playwright/test` passend zum Container-Image, aktuell `1.60.0`). Läuft pre-merge hermetisch
 (postgres/redis + `start-app` im `mcr.microsoft.com/playwright`-Container), dual-gate (advisory dev, hart main).
 
-### Branch-Pflicht (C1)
-`main` NUR per PR befüllen (kein `git push` direkt). Branch-Protection-Required-Checks müssen
-`gitleaks`, `bandit`, `coverage`, `test-matrix` listen — die Workflow-DAG gatet den GHCR-Push erst seit
-C1-It.1 mit (`docker-build.needs` umfasst jetzt security+coverage+e2e, fail-closed), der vollständige
-Staging→Prod-Gate kommt mit C1-It.2 (Candidate-Promotion).
+### Branch-Policy (C1-It.2 — enforced, default an)
+Jeder `main`-Push wird vom `branch-policy`-Job geprüft: HEAD muss auf `dev` liegen (ff-Merge) oder
+ein Merge-Commit mit dev als zweitem Parent sein (`--no-ff`/PR). Verstoß ⇒ Run rot, docker-build/
+promote geblockt ⇒ kein Image, kein Deploy. Free-Tier-Enforcement: echte Server-Side-Protection ist
+auf den privaten Org-Repos paid (API-Versuch 2026-06-09: footballapp/recyclage-app/rechnungsapp →
+HTTP 403 „Upgrade to GitHub Pro"; MitarbeiterApp als User-Repo: Force-Push-+Deletion-Block aktiviert).
+Not-Aus: `enforce-branch-policy: false` (Bibliotheks-Schalter, kein Break-Glass).
+
+### Gated Promotion (C1-It.2 — opt-in)
+`gated-promotion: true` (REQUIRES `staging-url`): main baut+pusht `:candidate-<sha>` statt `:latest`.
+`promote-prod` retagt erst nach `require-staging-green` digest-stabil auf `:latest` (Backup
+`:latest`→`:previous` inklusive) → Watchtower deployt Prod gegatet. Staging rot ⇒ Prod unverändert,
+Candidate liegt bereit; verify-prod skippt dann (kein False-Rollback). **Manuelles Promote nach Fix:**
+`docker buildx imagetools create --tag ghcr.io/adza-group/<app>:latest ghcr.io/adza-group/<app>:candidate-<sha>`
+**Rollback:** unverändert `:previous` → `:latest` (verify-prod macht das bei rotem Health-Check automatisch).
+**Bekannt (Follow-up vor Pilot):** `:candidate-*`-Tags akkumulieren in GHCR — `prune-ghcr` löscht nur
+untagged Versions; Candidate-Cleanup (älter als N Runs) gehört in eine Folge-Iteration.

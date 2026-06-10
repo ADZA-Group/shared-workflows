@@ -18,10 +18,21 @@
 > B1 (`pytest-rerunfailures`-Fix), C1-It.1 (security+coverage+e2e in `docker-build.needs`, coverage dual,
 > fail-closed), C2 (opt-in version-assert), **Phase G** (`reusable-e2e.yml`, opt-in). Audit-Befunde M1
 > (SHA-Pin Floating-Actions) + N1 (toter `setup-python-env`) wurden parallel in `baaddff` erledigt; zusätzlich
-> `_smoke-ci` `actions:read` + 2 api-Fixture-Lint-Fixes. **OFFEN (Resume):** (a) **T8-Release**: e2e-Ref in
-> `reusable-ci.yml` von `@dev`→`@v1` flippen, dann `v1.6.0` taggen + `@v1` force-moven; (b) **C1-It.2** =
-> Candidate-Tag-Promotion (echtes Staging→Prod-Gate; `:latest` wird noch im build-Job gepusht); (c) C2/e2e
-> App-Aktivierung pro Repo (`/health`-SHA bzw. Playwright-Specs); (d) PR-only-to-main als Branch-Protection-Pflicht.
+> `_smoke-ci` `actions:read` + 2 api-Fixture-Lint-Fixes. (a) **v1.6.0 RELEASED** (`@v1`=`f9e6c56`, ls-remote-verifiziert).
+> **🏁 2026-06-09 C1-It.2 GEBAUT auf `dev`** (Spec/Plan `2026-06-09-ci-candidate-promotion-branch-policy*`,
+> Review approve, Smokes grün: `_smoke-promotion` policy-3-Fälle + GHCR-Digest-Retag, `_smoke-ci`-Regression
+> branch-policy/promote korrekt skipped): **`branch-policy`** default AN (main nur via dev — ff oder
+> --no-ff/PR-Merge mit dev als ^2; Verstoß ⇒ docker-build geblockt, fail-closed) + **`gated-promotion`**
+> opt-in (`:candidate-<sha>` → `promote-prod` nach require-staging-green → digest-stabiles Retag `:latest`;
+> verify-prod skippt bei nicht-promotetem gated-Run gegen False-Rollback; REQUIRES staging-url).
+> **Branch-Protection-API-Befund 2026-06-09:** Org-Repos (footballapp/recyclage-app/rechnungsapp) → HTTP 403
+> paid; MitarbeiterApp (User-Repo) → Force-Push+Deletion-Block AKTIVIERT. **OFFEN (Resume):** (b2) **T7-Release
+> v1.7.0**: docker-build-Ref in `reusable-ci.yml` von `@dev`→`@v1` zurückflippen VOR dem Tag (TEMP-Kommentar
+> markiert die Stelle), dann v1.7.0 + `@v1`-move nach Verlust-Check; (b3) **FootballApp-Pilot**
+> `gated-promotion: true` = echter main-E2E-Beweis (danach Fleet); (b4) **Candidate-Tag-Cleanup** in prune-ghcr
+> (Review-Befund: `:candidate-*` akkumuliert, prune löscht nur untagged) — VOR Pilot-Aktivierung; (c) C2/e2e
+> App-Aktivierung pro Repo (`/health`-SHA bzw. Playwright-Specs); (R1) Alt-Automationen prüfen, die nicht via
+> dev auf main pushen (z.B. RecyclageApp `release-please.yml`) — würden vom branch-policy-Gate geblockt.
 >
 > **▶️ RESUME-PUNKT (2026-06-03) — Self-Hosted-CI-Umbau IMPLEMENTIERT (v1.4.1+v1.4.2):** GitHub-Actions-Gratis-Minuten waren
 > erschöpft (`ADZA-Group` 2126/2000, $0 Spend) → hosted-Runner org-weit geblockt. **Fix = Fleet-CI voll self-hosted-fähig gemacht:**
