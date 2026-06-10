@@ -229,6 +229,11 @@ on:
         type: boolean
         default: true
         description: "Hard gate: main pushes must come via dev (ff- or --no-ff-merge); violations block docker-build/promote"
+      gated-promotion:
+        required: false
+        type: boolean
+        default: false
+        description: "Opt-in: main builds :candidate-<sha>; promote-prod retags to :latest only after require-staging-green. REQUIRES staging-url."
 
 permissions:
   contents: read
@@ -738,6 +743,7 @@ jobs:
       platforms: ${{ inputs.multi-arch && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
       image-size-limit-mb: ${{ inputs.image-size-limit-mb }}
       runner-label: ${{ inputs.runner-label }}
+      gated-promotion: ${{ inputs.gated-promotion }}
     secrets: inherit
 
   verify-staging:
@@ -806,13 +812,56 @@ jobs:
           fi
           echo "✅ staging verified green — prod push allowed"
 
+  promote-prod:
+    name: "🚀 Promote Prod"
+    needs: [docker-build, require-staging-green]
+    if: >-
+      ${{ always() && inputs.gated-promotion && inputs.deploy-prod &&
+      github.ref == 'refs/heads/main' && github.event_name == 'push' &&
+      needs.docker-build.result == 'success' &&
+      needs.require-staging-green.result == 'success' }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2  # v3.10.0
+      - name: GHCR login
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee  # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: "Backup :latest -> :previous"
+        continue-on-error: true
+        run: |
+          IMAGE="${{ inputs.image-name != '' && inputs.image-name || format('ghcr.io/adza-group/{0}', inputs.app-name) }}"
+          if docker buildx imagetools inspect "${IMAGE}:latest" >/dev/null 2>&1; then
+            docker buildx imagetools create --tag "${IMAGE}:previous" "${IMAGE}:latest"
+            echo "::notice::backed up :latest -> :previous"
+          else
+            echo "::notice::no existing :latest to back up (first gated run)"
+          fi
+      - name: "Promote :candidate -> :latest"
+        run: |
+          IMAGE="${{ inputs.image-name != '' && inputs.image-name || format('ghcr.io/adza-group/{0}', inputs.app-name) }}"
+          CANDIDATE="${{ needs.docker-build.outputs.candidate-tag }}"
+          if [ -z "$CANDIDATE" ]; then
+            CANDIDATE="${IMAGE}:candidate-${{ github.sha }}"
+            echo "::notice::candidate-tag output empty — reconstructed ${CANDIDATE}"
+          fi
+          docker buildx imagetools create --tag "${IMAGE}:latest" "$CANDIDATE"
+          echo "::notice::promoted ${CANDIDATE} -> ${IMAGE}:latest — watchtower deploys prod on next poll"
+
   verify-prod:
     name: "✅ Verify Prod"
     environment: ${{ inputs.prod-environment }}
-    needs: [docker-build, require-staging-green]
+    needs: [docker-build, require-staging-green, promote-prod]
     if: >-
       ${{ always() && inputs.prod-url != '' && inputs.deploy-prod &&
       needs.docker-build.result == 'success' &&
+      (needs.promote-prod.result == 'success' || (!inputs.gated-promotion && needs.promote-prod.result == 'skipped')) &&
       github.ref == 'refs/heads/main' }}
     runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 25
@@ -892,7 +941,7 @@ jobs:
 
   telemetry:
     name: "📈 Telemetry"
-    needs: [changes, lint-python, lint-dockerfile, code-quality, dead-code, todo-tracker, license-check, commit-lint, security, test-matrix, property-tests, mutation, api-contract, e2e, frontend, coverage, test-results, docker-build, branch-policy, verify-staging, require-staging-green, verify-prod, load-test, pr-summary, dast, prune-ghcr]
+    needs: [changes, lint-python, lint-dockerfile, code-quality, dead-code, todo-tracker, license-check, commit-lint, security, test-matrix, property-tests, mutation, api-contract, e2e, frontend, coverage, test-results, docker-build, branch-policy, verify-staging, require-staging-green, promote-prod, verify-prod, load-test, pr-summary, dast, prune-ghcr]
     if: ${{ always() }}
     runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 5
@@ -921,6 +970,7 @@ jobs:
             echo "| mutation | ${{ needs.mutation.result }} |"
             echo "| frontend | ${{ needs.frontend.result }} |"
             echo "| verify-staging | ${{ needs.verify-staging.result }} |"
+            echo "| promote-prod | ${{ needs.promote-prod.result }} |"
             echo "| verify-prod | ${{ needs.verify-prod.result }} |"
             echo "| dast | ${{ needs.dast.result }} |"
             echo "| **wall-clock** | **${DUR}s** |"
