@@ -60,6 +60,11 @@ on:
         required: false
         type: boolean
         default: true
+      gated-promotion:
+        required: false
+        type: boolean
+        default: false
+        description: "main pushes :candidate-<sha> instead of :latest; a later promote job retags after staging is green"
       build-args:
         required: false
         type: string
@@ -91,6 +96,9 @@ on:
       digest:
         description: "Pushed image digest (empty when push=false)"
         value: ${{ jobs.build.outputs.digest }}
+      candidate-tag:
+        description: "Candidate tag pushed when gated-promotion on main (empty otherwise)"
+        value: ${{ jobs.build.outputs.candidate }}
 
 jobs:
   build:
@@ -106,6 +114,7 @@ jobs:
       tag: ${{ steps.localtag.outputs.tag }}
       size: ${{ steps.size.outputs.mb }}
       digest: ${{ steps.build-push.outputs.digest }}
+      candidate: ${{ steps.candidate.outputs.tag }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
@@ -203,10 +212,11 @@ jobs:
           tags: |
             ${{ inputs.tag-config }}
             type=raw,value=staging,enable=${{ github.ref == 'refs/heads/dev' }}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' && !inputs.gated-promotion }}
+            type=raw,value=candidate-${{ github.sha }},enable=${{ github.ref == 'refs/heads/main' && inputs.gated-promotion }}
 
       - name: "Backup :latest -> :previous (main only)"
-        if: ${{ inputs.push && github.ref == 'refs/heads/main' }}
+        if: ${{ inputs.push && github.ref == 'refs/heads/main' && !inputs.gated-promotion }}
         continue-on-error: true
         run: |
           if docker buildx imagetools inspect ${{ inputs.image-name }}:latest >/dev/null 2>&1; then
@@ -241,6 +251,11 @@ jobs:
           cache-from: ${{ inputs.cache-from }}
           cache-to: type=gha,mode=max
           build-args: ${{ inputs.build-args }}
+
+      - name: Candidate tag output
+        if: ${{ inputs.push && inputs.gated-promotion && github.ref == 'refs/heads/main' }}
+        id: candidate
+        run: echo "tag=${{ inputs.image-name }}:candidate-${{ github.sha }}" >> "$GITHUB_OUTPUT"
 
       - name: Install cosign
         if: ${{ inputs.push && inputs.sign-image }}
