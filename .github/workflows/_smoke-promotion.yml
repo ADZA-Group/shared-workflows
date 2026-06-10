@@ -1,12 +1,6 @@
 name: "🔥 smoke: promotion"
 on:
   workflow_dispatch: {}
-  # TEMP for validation (remove after green):
-  push:
-    branches: [dev]
-    paths:
-      - ".github/workflows/_smoke-promotion.yml"
-      - ".github/workflows/reusable-docker-build.yml"
 
 permissions:
   contents: read
