@@ -115,24 +115,38 @@ runs:
       env:
         EXPECTED: ${{ inputs.expected-version }}
         VURL: ${{ inputs.version-url != '' && inputs.version-url || inputs.url }}
+        MAXV: ${{ inputs.max-retries }}
+        DELAYV: ${{ inputs.retry-delay }}
       run: |
-        # Single request: dump response headers to a file, body to stdout (no TOCTOU,
-        # half the latency vs separate GET+HEAD). Fallbacks set GOT="" explicitly so a
-        # missing python3 / parse error surfaces as "no version" (exit 1), never a false pass.
-        HDRS=$(mktemp)
-        BODY=$(curl -s -D "$HDRS" --max-time 10 "$VURL" 2>/dev/null) || BODY=""
-        HDR=$(tr -d '\r' < "$HDRS" | awk -F': ' 'tolower($1)=="x-app-version"{print $2}')
-        rm -f "$HDRS"
-        GOT=$(printf '%s' "$BODY" | python3 -c \
-          "import sys,json; s=sys.stdin.read(); d=json.loads(s) if s.strip() else {}; print(d.get('sha') or d.get('version') or '')" \
-          2>/dev/null) || GOT=""
-        [ -z "$GOT" ] && GOT="$HDR"
+        # POLL-until-match (nicht one-shot!): der 200-Poll oben wird sofort vom ALTEN
+        # Image beantwortet; der Deploy-Flip (Watchtower-Pull) braucht 1..Poll-Intervall
+        # Sekunden. Wir pollen die Version mit demselben Budget wie den Health-Poll.
+        # Fallbacks setzen GOT="" explizit, damit fehlendes python3 / Parse-Fehler als
+        # "no version" sichtbar failen — nie als False-Pass.
+        fetch_got() {
+          local HDRS BODY HDR
+          HDRS=$(mktemp)
+          BODY=$(curl -s -D "$HDRS" --max-time 10 "$VURL" 2>/dev/null) || BODY=""
+          HDR=$(tr -d '\r' < "$HDRS" | awk -F': ' 'tolower($1)=="x-app-version"{print $2}')
+          rm -f "$HDRS"
+          GOT=$(printf '%s' "$BODY" | python3 -c \
+            "import sys,json; s=sys.stdin.read(); d=json.loads(s) if s.strip() else {}; print(d.get('sha') or d.get('version') or '')" \
+            2>/dev/null) || GOT=""
+          [ -z "$GOT" ] && GOT="$HDR"
+        }
+        for i in $(seq 1 "$MAXV"); do
+          fetch_got
+          if [ -n "$GOT" ] && [ "${GOT:0:7}" = "${EXPECTED:0:7}" ]; then
+            echo "version ${GOT:0:7} matches expected ${EXPECTED:0:7} (attempt $i)"
+            exit 0
+          fi
+          echo "  attempt $i/$MAXV: running '${GOT:0:7}' != expected '${EXPECTED:0:7}' (deploy noch nicht geflippt?)"
+          [ "$i" = "$MAXV" ] && break
+          sleep "$DELAYV"
+        done
         if [ -z "$GOT" ]; then
           echo "::error::version-assert: no sha/version at $VURL (expected ${EXPECTED:0:7}). App must expose it -- see README 'Version App-Contract'."
-          exit 1
+        else
+          echo "::error::deploy did not flip within the poll budget: running ${GOT:0:7}, expected ${EXPECTED:0:7} (watchtower poll/creds pruefen)"
         fi
-        if [ "${GOT:0:7}" != "${EXPECTED:0:7}" ]; then
-          echo "::error::Watchtower has not deployed the new image: running ${GOT:0:7}, expected ${EXPECTED:0:7}"
-          exit 1
-        fi
-        echo "version ${GOT:0:7} matches expected ${EXPECTED:0:7}"
+        exit 1
