@@ -77,14 +77,15 @@ runs:
         VENV="$RUNNER_TEMP/venv-${{ inputs.cache-key-suffix }}"
         python3 -m venv "$VENV"
         echo "$VENV/bin" >> "$GITHUB_PATH"
-        "$VENV/bin/pip" install --upgrade pip --retries 3 --timeout 60
+        echo "PIP_DEFAULT_TIMEOUT=90" >> "$GITHUB_ENV"
+        "$VENV/bin/pip" install --upgrade pip --retries 5 --timeout 90
 
     - name: Install requirements
       if: inputs.install-requirements == 'true'
       shell: bash
       run: |
         if [ -f requirements.txt ]; then
-          pip install --retries 3 --timeout 60 -r requirements.txt
+          pip install --retries 5 --timeout 90 -r requirements.txt
         else
           echo "::notice::no requirements.txt — skipping"
         fi
@@ -92,9 +93,9 @@ runs:
     - name: Install coverage tooling
       if: inputs.install-coverage == 'true'
       shell: bash
-      run: pip install --retries 3 --timeout 60 pytest-cov "coverage[toml]" pytest-timeout
+      run: pip install --retries 5 --timeout 90 pytest-cov "coverage[toml]" pytest-timeout
 
     - name: Install extra packages
       if: inputs.extra-packages != ''
       shell: bash
-      run: pip install --retries 3 --timeout 60 ${{ inputs.extra-packages }}
+      run: pip install --retries 5 --timeout 90 ${{ inputs.extra-packages }}
