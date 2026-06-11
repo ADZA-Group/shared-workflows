@@ -239,6 +239,11 @@ on:
         type: boolean
         default: false
         description: "Opt-in: main builds :candidate-<sha>; promote-prod retags to :latest only after require-staging-green. REQUIRES staging-url."
+      enable-candidate-prune:
+        required: false
+        type: boolean
+        default: false
+        description: "Opt-in: delete GHCR versions tagged ONLY candidate-*/main-<sha> older than 14 days (referenced-safe; promoted candidates carry :latest/:main on the same version and are skipped)"
 
 permissions:
   contents: read
@@ -934,7 +939,7 @@ jobs:
     name: "🧹 Prune GHCR"
     needs: [docker-build, verify-staging, verify-prod]
     if: >-
-      ${{ always() && inputs.enable-ghcr-prune && github.event_name == 'push' &&
+      ${{ always() && (inputs.enable-ghcr-prune || inputs.enable-candidate-prune) && github.event_name == 'push' &&
       needs.docker-build.result == 'success' &&
       needs.verify-staging.result != 'failure' &&
       needs.verify-prod.result != 'failure' }}
@@ -944,12 +949,42 @@ jobs:
       packages: write
     steps:
       - name: Delete untagged versions
+        if: ${{ inputs.enable-ghcr-prune }}
         continue-on-error: true
         uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55  # v5.0.0
         with:
           package-name: ${{ inputs.app-name }}
           package-type: container
           delete-only-untagged-versions: "true"
+      - name: Delete stale candidate versions (referenced-safe)
+        if: ${{ inputs.enable-candidate-prune }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE: ${{ inputs.image-name != '' && inputs.image-name || format('ghcr.io/adza-group/{0}', inputs.app-name) }}
+        run: |
+          # ghcr.io/<owner>/<pkg...> -> owner + url-encoded package path
+          OWNER=$(echo "$IMAGE" | cut -d/ -f2)
+          PKG=$(echo "$IMAGE" | cut -d/ -f3- | sed 's|/|%2F|g')
+          CUTOFF=$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ)
+          BASE="/orgs/${OWNER}/packages/container/${PKG}"
+          gh api "${BASE}/versions?per_page=100" --paginate > /tmp/vers.json 2>/dev/null \
+            || { BASE="/users/${OWNER}/packages/container/${PKG}"; gh api "${BASE}/versions?per_page=100" --paginate > /tmp/vers.json; }
+          # Loeschregel: aelter als CUTOFF, hat Tags, ALLE Tags matchen candidate-*/main-<sha>,
+          # KEIN Tag aus dem Schutz-Set (Gurt+Hosentraeger zur Regex).
+          jq -r --arg cutoff "$CUTOFF" '
+            .[] | select(.created_at < $cutoff)
+            | select((.metadata.container.tags | length) > 0)
+            | select([.metadata.container.tags[] | test("^(candidate-[0-9a-f]+|main-[0-9a-f]{7,40})$")] | all)
+            | select([.metadata.container.tags[] | IN("latest","previous","staging","staging-previous","main","dev")] | any | not)
+            | "\(.id)\t\(.metadata.container.tags | join(","))"' /tmp/vers.json > /tmp/prune.list
+          COUNT=$(grep -c . /tmp/prune.list || true)
+          echo "## 🧹 Candidate-Prune (${COUNT} versions)" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${COUNT:-0}" = "0" ]; then echo "::notice::no stale candidate versions"; exit 0; fi
+          while IFS=$'\t' read -r ID TAGS; do
+            echo "deleting version ${ID} (${TAGS})"
+            echo "| ${ID} | ${TAGS} |" >> "$GITHUB_STEP_SUMMARY"
+            gh api -X DELETE "${BASE}/versions/${ID}"
+          done < /tmp/prune.list
 
   telemetry:
     name: "📈 Telemetry"
