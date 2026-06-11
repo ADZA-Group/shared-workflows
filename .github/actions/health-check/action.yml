@@ -132,7 +132,11 @@ runs:
           GOT=$(printf '%s' "$BODY" | python3 -c \
             "import sys,json; s=sys.stdin.read(); d=json.loads(s) if s.strip() else {}; print(d.get('sha') or d.get('version') or '')" \
             2>/dev/null) || GOT=""
-          [ -z "$GOT" ] && GOT="$HDR"
+          # Explizites if statt '[ ] &&' — als LETZTE Zeile der Funktion wuerde der
+          # fehlschlagende -z-Test (= GOT vorhanden = ERFOLGSFALL!) den Funktions-
+          # Status 1 setzen und 'set -e' das Script vor dem Match-Check killen.
+          if [ -z "$GOT" ]; then GOT="$HDR"; fi
+          return 0
         }
         for i in $(seq 1 "$MAXV"); do
           fetch_got
