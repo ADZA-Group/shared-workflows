@@ -201,3 +201,5 @@ Pflicht-Inputs: `app-name`, `test-shards` (JSON `[{name,paths,markers?,cov?}]`).
 → dann self-hosted-Validierung + P4-Pilot (FootballApp zuerst, dev-first).
 **Option B:** P3b (Deploy-Tail) + neue Reusables bauen (gegen Live-Staging validieren).
 **Option C:** P4-Pilot-Migration vorbereiten (FootballApp build.yml → reusable-ci@dev-Caller, Config aus Spec §8).
+
+> **2026-06-10 v1.7.1 RELEASED** (`@v1`=`50666b2`, ls-remote-verifiziert): changes-Job forciert auf main-PUSHES alle Filter-Outputs auf true — policy-konforme dev->main-Merges haben oft LEEREN dev...main-Diff (merge-base=dev-HEAD) -> Kaskaden-Skip -> require-staging-green las verify-staging=skipped und blockte den Promote hart (Incident Rechnungsapp Run 27258300405). Path-Filter bleiben dev/PR-Optimierung. E2E-bewiesen: Rechnungsapp-Promote `b2a6226` voll validiert + deployed.
