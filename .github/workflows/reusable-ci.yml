@@ -243,7 +243,7 @@ on:
         required: false
         type: boolean
         default: false
-        description: "Opt-in: delete GHCR versions tagged ONLY candidate-*/main-<sha> older than 14 days (referenced-safe; promoted candidates carry :latest/:main on the same version and are skipped)"
+        description: "Opt-in: delete GHCR versions tagged ONLY candidate-*/main-<sha> older than 14 days (referenced-safe; promoted candidates carry :latest/:main on the same version and are skipped). Note: for packages under a personal account (e.g. ghcr.io/azad-ahmed/*) the org-scoped GITHUB_TOKEN may lack DELETE permission — the step then fails loudly, no deletions."
 
 permissions:
   contents: read
@@ -969,6 +969,11 @@ jobs:
           BASE="/orgs/${OWNER}/packages/container/${PKG}"
           gh api "${BASE}/versions?per_page=100" --paginate > /tmp/vers.json 2>/dev/null \
             || { BASE="/users/${OWNER}/packages/container/${PKG}"; gh api "${BASE}/versions?per_page=100" --paginate > /tmp/vers.json; }
+          # Safety-Annahme (load-bearing): imagetools create --tag :latest :candidate-<sha>
+          # erzeugt den SELBEN OCI-Manifest-Digest -> GHCR fuehrt beide Tags an EINER Version.
+          # Empirisch verifiziert: RecyclageApp Pilot Run #391 (2026-06-10, Digest 4e8fa99f).
+          # Vor Aktivierung auf neuen Apps: in GHCR pruefen, dass die promotete Version
+          # candidate-* UND latest am selben Eintrag traegt.
           # Loeschregel: aelter als CUTOFF, hat Tags, ALLE Tags matchen candidate-*/main-<sha>,
           # KEIN Tag aus dem Schutz-Set (Gurt+Hosentraeger zur Regex).
           jq -r --arg cutoff "$CUTOFF" '
