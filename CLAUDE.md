@@ -34,6 +34,17 @@
 > App-Aktivierung pro Repo (`/health`-SHA bzw. Playwright-Specs); (R1) Alt-Automationen prüfen, die nicht via
 > dev auf main pushen (z.B. RecyclageApp `release-please.yml`) — würden vom branch-policy-Gate geblockt.
 >
+> **🏁 2026-06-11 WELLE 1 (Fleet-Endausbau, Umbrella `2026-06-10-ci-fleet-endausbau-design.md`): `@v1`=`v1.8.0` (`9475e3c`, ls-remote-verifiziert).**
+> Node-24-Pins (alle 20 Familien; Majors: checkout v6, cache v5, artifact v7/v8 PAARWEISE, buildx v4, dep-review v5,
+> attest v4, CodeQL-Bundle; 8 Familien waren aktuell) + `GIT_SHA`-Default-Build-Arg (C2-Voraussetzung; Apps: `ARG GIT_SHA`
+> →`ENV APP_SHA`→`/health` sha) + `enable-candidate-prune` (referenced-safe: löscht NUR Versionen mit ausschließlich
+> candidate-*/main-<sha>-Tags >14d; Review approve; Probelauf gegen echtes recyclage-Paket = leer ✓) + pip retries 5/
+> timeout 90. Alle 4 Smokes grün (composites/ci/docker-build/promotion). **Gotcha (Henne-Ei):** Node-20-Warnungs-Check
+> ist erst NACH dem @v1-Move beweisbar — Smokes ziehen Composites @v1, der gebumpte Pin liegt bis zum Release nur auf dev.
+> **NÄCHSTE WELLEN:** 2 = C2 `/health`-SHA je App (Recyclage→Football→Rechnungsapp(dev)→Mitarbeiter(inert)) + a11y 12→0
+> + e2e RecyclageApp · 3 = OpenAPI+Playwright-Smoke je App · 4 = Watchtower-Flotte (DT4). Grenzen: kein FootballApp-Staging
+> (B abgewählt), Rechnungsapp-gated nach Debt-Merge.
+>
 > **▶️ RESUME-PUNKT (2026-06-03) — Self-Hosted-CI-Umbau IMPLEMENTIERT (v1.4.1+v1.4.2):** GitHub-Actions-Gratis-Minuten waren
 > erschöpft (`ADZA-Group` 2126/2000, $0 Spend) → hosted-Runner org-weit geblockt. **Fix = Fleet-CI voll self-hosted-fähig gemacht:**
 > 1. `decide-runner`-Fallback invertiert (kein-PAT / Billing-unlesbar / Minuten-niedrig → **self-hosted** statt hosted) in allen 4 App-Callern + dev→main.
