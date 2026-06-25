@@ -506,6 +506,11 @@ jobs:
     name: "📋 Test Results"
     needs: test-matrix
     if: ${{ always() && needs.test-matrix.result != 'skipped' }}
+    # Reines Reporting (publiziert Test-Zaehler). Der vorgelagerte Docker-Action-
+    # Image-Pull (ghcr.io/enricomi/...) flaket gelegentlich und liegt VOR dem
+    # step-level continue-on-error -> ohne Job-level CoE roetet ein Reporting-
+    # Hiccup die ganze Pipeline, obwohl Tests/Build/Deploy gruen sind.
+    continue-on-error: true
     runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 10
     permissions:
