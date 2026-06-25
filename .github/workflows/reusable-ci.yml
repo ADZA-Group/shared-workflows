@@ -32,6 +32,14 @@ on:
         required: false
         type: string
         default: '["self-hosted", "linux", "proxmox"]'
+      cloud-runner-label:
+        # Runner fuer die LAN-unabhaengige Fan-out-Phase (Lints/Tests/Security/Quality).
+        # Default GitHub-hosted -> echte Parallelitaet + zuverlaessige GHCR-Pulls + mehr RAM
+        # (loest CodeQL-OOM + Trivy/EnricoMi-GHCR-Flakes auf den kleinen self-hosted Runnern).
+        # Deploy/LAN-Jobs (Build, Verify-Staging/-Prod, Load-Test, DAST) bleiben auf runner-label.
+        required: false
+        type: string
+        default: '["ubuntu-latest"]'
       python-version:
         required: false
         type: string
@@ -198,7 +206,7 @@ permissions:
 jobs:
   changes:
     name: "🔍 Detect Changes"
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -237,7 +245,7 @@ jobs:
     name: "🐍 Lint (ruff)"
     needs: changes
     if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true' }}
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
@@ -255,7 +263,7 @@ jobs:
     name: "🐳 Lint Dockerfile"
     needs: changes
     if: ${{ needs.changes.outputs.docker == 'true' || needs.changes.outputs.ci == 'true' }}
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
     timeout-minutes: 5
     continue-on-error: true   # advisory (incl. main) — hadolint findings inform, don't block the pipeline
     steps:
@@ -277,7 +285,7 @@ jobs:
     name: "📊 Code Quality"
     needs: changes
     if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true' }}
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
     timeout-minutes: 10
     continue-on-error: true
     steps:
@@ -301,7 +309,7 @@ jobs:
     name: "💀 Dead Code"
     needs: changes
     if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true' }}
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
     timeout-minutes: 10
     continue-on-error: true
     steps:
@@ -325,7 +333,7 @@ jobs:
     name: "📌 TODOs"
     needs: changes
     if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true' }}
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
@@ -354,7 +362,7 @@ jobs:
     name: "⚖️ Licenses"
     needs: changes
     if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true' }}
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
     timeout-minutes: 10
     continue-on-error: ${{ !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
     steps:
@@ -377,7 +385,7 @@ jobs:
     name: "📝 Commit Lint"
     needs: changes
     if: ${{ github.event_name == 'pull_request' }}
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
     timeout-minutes: 5
     continue-on-error: true
     steps:
@@ -405,14 +413,14 @@ jobs:
     uses: adza-group/shared-workflows/.github/workflows/reusable-security-scan.yml@v1
     with:
       python-version: ${{ inputs.python-version }}
-      runner-label: ${{ inputs.runner-label }}
+      runner-label: ${{ inputs.cloud-runner-label }}
     secrets: inherit
 
   test-matrix:
     name: "🧪 Test"
     needs: changes
     if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true' }}
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -432,6 +440,7 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+          --tmpfs /var/lib/postgresql/data:rw
       redis:
         image: redis:7-alpine
         ports:
@@ -483,7 +492,7 @@ jobs:
     name: "📊 Coverage Gate"
     needs: test-matrix
     if: ${{ always() && needs.test-matrix.result == 'success' }}
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
@@ -511,7 +520,7 @@ jobs:
     # step-level continue-on-error -> ohne Job-level CoE roetet ein Reporting-
     # Hiccup die ganze Pipeline, obwohl Tests/Build/Deploy gruen sind.
     continue-on-error: true
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -532,7 +541,7 @@ jobs:
     name: "🔬 Property Tests"
     needs: changes
     if: ${{ inputs.enable-property-tests && (needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true') }}
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
     timeout-minutes: 15
     continue-on-error: true
     steps:
@@ -561,7 +570,7 @@ jobs:
     with:
       mode: incremental
       base-ref: main
-      runner-label: ${{ inputs.runner-label }}
+      runner-label: ${{ inputs.cloud-runner-label }}
     secrets: inherit
 
   api-contract:
@@ -577,7 +586,7 @@ jobs:
       boot-command: ${{ inputs.api-boot-command }}
       health-url: ${{ inputs.api-health-url }}
       requirements: ${{ inputs.api-requirements }}
-      runner-label: ${{ inputs.runner-label }}
+      runner-label: ${{ inputs.cloud-runner-label }}
     secrets: inherit
 
   frontend:
@@ -589,7 +598,7 @@ jobs:
     uses: adza-group/shared-workflows/.github/workflows/reusable-frontend.yml@v1
     with:
       frontend-dir: ${{ inputs.frontend-dir }}
-      runner-label: ${{ inputs.runner-label }}
+      runner-label: ${{ inputs.cloud-runner-label }}
       a11y-url: ${{ inputs.a11y-url }}
       a11y-paths: ${{ inputs.a11y-paths }}
     secrets: inherit
