@@ -34,12 +34,13 @@ on:
         default: '["self-hosted", "linux", "proxmox"]'
       cloud-runner-label:
         # Runner fuer die LAN-unabhaengige Fan-out-Phase (Lints/Tests/Security/Quality).
-        # Default GitHub-hosted -> echte Parallelitaet + zuverlaessige GHCR-Pulls + mehr RAM
-        # (loest CodeQL-OOM + Trivy/EnricoMi-GHCR-Flakes auf den kleinen self-hosted Runnern).
-        # Deploy/LAN-Jobs (Build, Verify-Staging/-Prod, Load-Test, DAST) bleiben auf runner-label.
+        # HYBRID DORMANT: Default = self-hosted, weil GitHub-hosted Runner fuer diesen
+        # Account billing-gesperrt sind ("payments failed / spending limit"). Sobald
+        # Billing gefixt ist: Caller setzt cloud-runner-label: '["ubuntu-latest"]' ->
+        # Fan-out laeuft voll parallel auf GitHubs Infra (loest GHCR-Flakes + CodeQL-OOM).
         required: false
         type: string
-        default: '["ubuntu-latest"]'
+        default: '["self-hosted", "linux", "proxmox"]'
       python-version:
         required: false
         type: string
