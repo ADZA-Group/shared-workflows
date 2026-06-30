@@ -239,6 +239,9 @@ jobs:
               - 'docker-compose*.yml'
             frontend:
               - 'frontend/**'
+              - 'templates/**'
+              - 'static/**'
+              - 'translations/**'
             ci:
               - '.github/**'
 
