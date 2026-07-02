@@ -1,7 +1,9 @@
 # CLAUDE.md — `shared-workflows` (ADZA-Group Unified CI)
 
 > **Für Claude (neue Session):** Dies ist der Wiederaufnahme-Handoff für die Unified-CI-Initiative.
-> Stand **2026-06-03**, branch `dev`. **Released: floating `@v1` = `v1.5.0` (commit `ff674f6`) — verifiziert via `git ls-remote`.** Lies das hier zuerst.
+> Stand **2026-07-02**, branch `dev`. **Released: floating `@v1` = `v1.8.9` (commit `50508f4`, ls-remote-verifiziert).** Lies das hier zuerst.
+>
+> **🏁 2026-07-02 v1.8.9 (`@v1` moved, User-Freigabe):** `test-results`-Job nutzt die **composite-Variante** von publish-unit-test-result-action (`…/composite@<sha>`, kein Docker-Image-Pull). Root-Cause: die Container-Action zog ihr Image vom geteilten Runner-Daemon, der während des PARALLELEN Build-Jobs mit dem repo-scoped GITHUB_TOKEN bei ghcr.io eingeloggt ist → Pulls FREMDER public Namespaces antworten „denied" (Incident rechnungsapp Run 28578768052; Zeitfenster-Beweis + anonymer Pull ok; frühere „Fixes" v1.8.3/d989ede hatten nur das Symptom stummgeschaltet). Empirisch grün BEI parallelem Build. Merke: v1-Linie = cherry-picks von dev (Historien divergieren); Release-Muster = Branch von v1 → cherry-pick → `v1.8.x`-Tag → `git tag -f -a v1` + `push -f` nach Verlust-Check `git log v1 --not dev`. CodeQL-js kann Runner 104 (4 GB) OOM-reissen → „runner has received a shutdown signal" + Kollateral-Fails → `gh run rerun <id> --failed` genügt.
 >
 > **🚀 CI-POWER-UP läuft** (Senior-Level „alles abdecken", Umbrella-Spec `docs/superpowers/specs/2026-06-03-senior-ci-powerup-design.md`, 6 Phasen, Reihenfolge A✅→B→F→C→E→D):
 > **Phase A ✅ released (v1.5.0):** diff-coverage-gate (changed-line, default 80%, dual-gate, in `coverage-gate`-Composite + reusable-ci coverage-job `fetch-depth:0`) + `pytest-rerun-failures` flaky-auto-rerun (`test-reruns`-Input in `run-pytest-shard`). Composites live; empirische coverage-job-Validierung läuft beim nächsten App-Push mit Python-Code-Änderung. Plan: `docs/superpowers/plans/2026-06-03-ci-powerup-phaseA-test-depth.md`.
