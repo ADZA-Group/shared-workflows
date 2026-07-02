@@ -604,7 +604,12 @@ jobs:
           pattern: junit-*
           path: junit
           merge-multiple: true
-      - uses: EnricoMi/publish-unit-test-result-action@c950f6fb443cb5af20a377fd0dfaa78838901040  # v2.23.0
+      # composite-Variante (kein Docker-Pull): die Container-Action zog ihr Image
+      # vom Runner-Daemon, der waehrend des parallelen Build-Jobs mit dem
+      # repo-scoped GITHUB_TOKEN bei ghcr.io eingeloggt ist -> Pulls FREMDER
+      # public Namespaces antworten dann "denied" (Incident rechnungsapp
+      # Run 28578768052, Job im Build-Login-Fenster 09:22:18-09:26:59).
+      - uses: EnricoMi/publish-unit-test-result-action/composite@c950f6fb443cb5af20a377fd0dfaa78838901040  # v2.23.0
         continue-on-error: true
         with:
           junit_files: "junit/junit-*.xml"
