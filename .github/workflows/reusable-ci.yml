@@ -131,6 +131,11 @@ on:
         required: false
         type: boolean
         default: true
+      full-ci-on-dev-push:
+        required: false
+        type: boolean
+        default: false
+        description: "true = Security-Suite + Property-Tests auch auf dev-/Feature-Pushes (Verhalten vor v1.9.0). Default false: dort skippen — PR, main-Push, dispatch und schedule laufen immer voll (CI-Diät, Runner-104-Entlastung)"
       enable-load-test:
         required: false
         type: boolean
@@ -218,6 +223,11 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend }}
       ci: ${{ steps.filter.outputs.ci }}
       any_code: ${{ steps.filter.outputs.python == 'true' || steps.filter.outputs.docker == 'true' || steps.filter.outputs.frontend == 'true' }}
+      # CI-Diät (v1.9.0): dev-/Feature-PUSHES laufen light — Security-Suite + Property-Tests
+      # skippen dort. PR, main-Push, dispatch und schedule validieren immer voll.
+      # docker-build gated auf dieser Linie nicht auf security (needs: changes/lint/test) →
+      # kein Kaskadenrisiko. Opt-out pro App: full-ci-on-dev-push: true.
+      light: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && !inputs.full-ci-on-dev-push }}
       start_time: ${{ steps.t.outputs.epoch }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
@@ -409,7 +419,7 @@ jobs:
   security:
     name: "🔐 Security"
     needs: changes
-    if: ${{ needs.changes.outputs.any_code == 'true' || needs.changes.outputs.ci == 'true' }}
+    if: ${{ (needs.changes.outputs.any_code == 'true' || needs.changes.outputs.ci == 'true') && needs.changes.outputs.light != 'true' }}
     permissions:
       actions: read            # CodeQL on private repos calls GET /actions/runs/{id} → needs actions:read (github/codeql-action#2117)
       contents: read
@@ -549,7 +559,7 @@ jobs:
   property-tests:
     name: "🔬 Property Tests"
     needs: changes
-    if: ${{ inputs.enable-property-tests && (needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true') }}
+    if: ${{ inputs.enable-property-tests && (needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true') && needs.changes.outputs.light != 'true' }}
     runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
     timeout-minutes: 15
     continue-on-error: true
