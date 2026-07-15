@@ -2,6 +2,7 @@ name: "🧪 Smoke — DAST"
 
 on:
   workflow_dispatch:
+  push: { branches: [dev] }  # TEMP: Validierung des zap-out-Fixes — nach grünem Lauf entfernen
 
 permissions:
   contents: read

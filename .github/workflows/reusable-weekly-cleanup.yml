@@ -96,7 +96,12 @@ jobs:
         run: |
           find /tmp -type f -mtime +2 -delete 2>/dev/null || true
           find /home/runner/actions-runner*/_work/_temp -mindepth 1 -mtime +1 -delete 2>/dev/null || true
-          rm -rf /home/runner/.cache/pip /home/runner/.cache/uv /home/runner/.npm/_cacache 2>/dev/null || true
+          # Nur KALTE Cache-Dateien (>30 Tage unbenutzt) räumen: der lokale
+          # pip-/npm-Cache ist auf den self-hosted Runnern die einzige echte
+          # Cache-Quelle (der Actions-Cache ist restore-only) — das frühere
+          # rm -rf erzwang jeden Montag Cold-Start-Installs in allen Jobs.
+          find /home/runner/.cache/pip /home/runner/.cache/uv /home/runner/.npm/_cacache -type f -atime +30 -delete 2>/dev/null || true
+          find /home/runner/.cache/pip /home/runner/.cache/uv /home/runner/.npm/_cacache -type d -empty -delete 2>/dev/null || true
 
           DISK=$(df -h / | tail -1 | awk '{print $3, "/", $2, "(" $5 ")"}')
           echo "### 💾 Disk" >> $GITHUB_STEP_SUMMARY

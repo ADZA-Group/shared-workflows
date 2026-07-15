@@ -41,9 +41,15 @@ jobs:
 
       - name: Run ZAP ${{ inputs.scan-type }} scan
         run: |
+          # ZAP-Container läuft als user "zap" (uid 1000) — auf self-hosted Runnern
+          # gehört der Workspace einer anderen UID → "Permission denied:
+          # /zap/wrk/zap-report.html" → Report fehlt → Gate unten rot, obwohl der
+          # Scan selbst sauber war (Incident recyclage-app main). Weltschreibbares
+          # Unterverzeichnis ist runner-agnostisch (hosted UND self-hosted).
+          mkdir -p zap-out && chmod 0777 zap-out
           SCAN_CMD="zap-${{ inputs.scan-type }}.py"
           docker run --rm \
-            -v "${{ github.workspace }}:/zap/wrk:rw" \
+            -v "${{ github.workspace }}/zap-out:/zap/wrk:rw" \
             ghcr.io/zaproxy/zaproxy:stable \
             "$SCAN_CMD" \
             -t "${{ inputs.target-url }}" \
@@ -53,13 +59,13 @@ jobs:
 
       - name: Parse report + enforce gate
         run: |
-          if [ ! -f zap-report.json ]; then
+          if [ ! -f zap-out/zap-report.json ]; then
             echo "::error::ZAP report not found — scan may have failed to start"
             exit 1
           fi
           FAIL=$(python3 -c "
           import json
-          d = json.load(open('zap-report.json'))
+          d = json.load(open('zap-out/zap-report.json'))
           alerts = d.get('site', [{}])[0].get('alerts', []) if d.get('site') else []
           fail = sum(1 for a in alerts if a.get('riskcode') == '3')
           high = sum(1 for a in alerts if a.get('riskcode') == '2')
@@ -96,6 +102,6 @@ jobs:
         with:
           name: zap-report
           path: |
-            zap-report.json
-            zap-report.html
+            zap-out/zap-report.json
+            zap-out/zap-report.html
           retention-days: 30
