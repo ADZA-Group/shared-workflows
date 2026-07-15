@@ -298,7 +298,12 @@ jobs:
   code-quality:
     name: "📊 Code Quality"
     needs: changes
-    if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true' }}
+    # CI-Diaet (v1.9.4): auf dev-/Feature-PUSHES aus. Der Job ist dort ohnehin
+    # continue-on-error — reine Beratung, auf die niemand wartet, aber ~3-4 min
+    # Runner-104-Zeit pro Push. PR, main, dispatch und der naechtliche schedule-
+    # Lauf fahren ihn weiter voll. Schreibweise wie security/property-tests:
+    # Job-Outputs sind STRINGS, !light waere immer falsch.
+    if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true') && needs.changes.outputs.light != 'true' }}
     runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
     timeout-minutes: 10
     continue-on-error: true
@@ -322,7 +327,12 @@ jobs:
   dead-code:
     name: "💀 Dead Code"
     needs: changes
-    if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true' }}
+    # CI-Diaet (v1.9.4): auf dev-/Feature-PUSHES aus. Der Job ist dort ohnehin
+    # continue-on-error — reine Beratung, auf die niemand wartet, aber ~3-4 min
+    # Runner-104-Zeit pro Push. PR, main, dispatch und der naechtliche schedule-
+    # Lauf fahren ihn weiter voll. Schreibweise wie security/property-tests:
+    # Job-Outputs sind STRINGS, !light waere immer falsch.
+    if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true') && needs.changes.outputs.light != 'true' }}
     runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
     timeout-minutes: 10
     continue-on-error: true
@@ -346,7 +356,12 @@ jobs:
   todo-tracker:
     name: "📌 TODOs"
     needs: changes
-    if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true' }}
+    # CI-Diaet (v1.9.4): auf dev-/Feature-PUSHES aus. Der Job ist dort ohnehin
+    # continue-on-error — reine Beratung, auf die niemand wartet, aber ~3-4 min
+    # Runner-104-Zeit pro Push. PR, main, dispatch und der naechtliche schedule-
+    # Lauf fahren ihn weiter voll. Schreibweise wie security/property-tests:
+    # Job-Outputs sind STRINGS, !light waere immer falsch.
+    if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true') && needs.changes.outputs.light != 'true' }}
     runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
     timeout-minutes: 5
     steps:
@@ -375,7 +390,12 @@ jobs:
   license-check:
     name: "⚖️ Licenses"
     needs: changes
-    if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true' }}
+    # CI-Diaet (v1.9.4): auf dev-/Feature-PUSHES aus. Der Job ist dort ohnehin
+    # continue-on-error — reine Beratung, auf die niemand wartet, aber ~3-4 min
+    # Runner-104-Zeit pro Push. PR, main, dispatch und der naechtliche schedule-
+    # Lauf fahren ihn weiter voll. Schreibweise wie security/property-tests:
+    # Job-Outputs sind STRINGS, !light waere immer falsch.
+    if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true') && needs.changes.outputs.light != 'true' }}
     runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
     timeout-minutes: 10
     continue-on-error: ${{ !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
