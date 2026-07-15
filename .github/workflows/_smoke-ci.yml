@@ -4,9 +4,6 @@ name: "🧪 Smoke — CI Orchestrator"
 
 on:
   workflow_dispatch:
-  # TEMP: beweist die Diaet-Skips (dispatch hat light=false, nur ein PUSH auf
-  # einem Nicht-main-Branch setzt light=true). Wird vor dem Tag zurueckgedreht.
-  push: { branches: [release-v1.9.4] }
 
 permissions:
   actions: read          # security/codeql nested job claims actions:read (codeql-action#2117)
