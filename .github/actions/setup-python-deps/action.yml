@@ -66,7 +66,14 @@ runs:
             || echo "::warning::could not install tesseract/poppler (no passwordless sudo?); ensure they are pre-provisioned on the runner"
         fi
 
+    # Nur auf ephemeren (hosted) Runnern sinnvoll. Auf self-hosted ist ~/.cache/pip
+    # eine PERSISTENTE lokale Platte — der Restore lud dort 905 MB über die Leitung
+    # (5.3 MB/s = 173 s pro Job, ~8 GB pro CI-Lauf), um Dateien "wiederherzustellen",
+    # die längst dort lagen: 178 s von 208 s Setup-Zeit für nichts. Gemessen an
+    # rechnungsapp-Job 87319271043 (2026-07-15); pip selbst braucht ~25 s.
+    # Der Post-Run-SAVE war aus demselben Grund schon vorher deaktiviert (Upload-Hänger).
     - name: Cache pip downloads
+      if: runner.environment == 'github-hosted'
       uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57  # v4.2.0
       with:
         path: ~/.cache/pip
