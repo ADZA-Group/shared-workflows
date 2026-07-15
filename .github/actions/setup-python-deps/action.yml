@@ -6,6 +6,14 @@ name: "Setup Python Deps"
 description: "System python3 + isolated per-job venv + cached pip deps (Debian-13 safe)"
 
 inputs:
+  python-version:
+    description: >-
+      Gewünschte Python-Version, z.B. "3.14". Genutzt wird `python<version>` vom PATH.
+      Fehlt der Interpreter, wird auf System-python3 zurückgefallen — MIT Warnung, damit
+      die Abweichung sichtbar ist (bis 2026-07-15 wurde die Version stillschweigend
+      ignoriert: Tests liefen auf 3.13, Prod-Image auf 3.14.6). Leer = System-python3.
+    required: false
+    default: ""
   install-requirements:
     description: "Install requirements.txt if present"
     required: false
@@ -31,12 +39,24 @@ runs:
   using: composite
   steps:
     - name: Verify system Python
+      id: py
       shell: bash
       run: |
         if ! command -v python3 >/dev/null 2>&1; then
           echo "::error::python3 not found on runner"; exit 1
         fi
-        echo "Using $(python3 --version) at $(command -v python3)"
+        # Gewünschte Version bevorzugen, sonst System-python3 + laute Warnung.
+        WANT="${{ inputs.python-version }}"
+        PY="$(command -v python3)"
+        if [ -n "$WANT" ]; then
+          if command -v "python${WANT}" >/dev/null 2>&1; then
+            PY="$(command -v "python${WANT}")"
+          else
+            echo "::warning::python${WANT} nicht auf dem Runner — Tests laufen auf $(python3 --version). Abweichung zur angeforderten Version ${WANT}!"
+          fi
+        fi
+        echo "interpreter=$PY" >> "$GITHUB_OUTPUT"
+        echo "Using $("$PY" --version) at $PY"
 
     - name: Ensure pip + venv modules
       shell: bash
@@ -84,7 +104,7 @@ runs:
       shell: bash
       run: |
         VENV="$RUNNER_TEMP/venv-${{ inputs.cache-key-suffix }}"
-        python3 -m venv "$VENV"
+        "${{ steps.py.outputs.interpreter }}" -m venv "$VENV"
         echo "$VENV/bin" >> "$GITHUB_PATH"
         echo "PIP_DEFAULT_TIMEOUT=90" >> "$GITHUB_ENV"
         "$VENV/bin/pip" install --upgrade pip --retries 5 --timeout 90

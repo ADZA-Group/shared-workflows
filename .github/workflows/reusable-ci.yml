@@ -565,6 +565,11 @@ jobs:
           PY
       - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1
         with:
+          # Der Test-Job ist der einzige, der App-Verhalten validiert — hier MUSS die
+          # Python-Version die des Prod-Images sein. Vorher lief er stumm auf System-
+          # python3 (3.13), waehrend die Images auf 3.14 bauen. Fehlt der Interpreter,
+          # warnt das Composite laut statt still abzuweichen.
+          python-version: ${{ inputs.python-version }}
           install-requirements: "true"
           install-system-deps: ${{ inputs.install-system-deps }}
           install-coverage: "true"
