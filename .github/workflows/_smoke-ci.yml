@@ -3,7 +3,6 @@
 name: "🧪 Smoke — CI Orchestrator"
 
 on:
-  push: { branches: [dev] }   # TEMPORARY validation trigger - revert after green
   workflow_dispatch:
 
 permissions:
