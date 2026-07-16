@@ -250,6 +250,21 @@ on:
         default: false
         description: "Opt-in: delete GHCR versions tagged ONLY candidate-*/main-<sha> older than 14 days (referenced-safe; promoted candidates carry :latest/:main on the same version and are skipped). Note: for packages under a personal account (e.g. ghcr.io/azad-ahmed/*) the org-scoped GITHUB_TOKEN may lack DELETE permission — the step then fails loudly, no deletions."
 
+    # Nur die Notify-Webhooks sind echte Secrets (alles andere nutzt den
+    # automatisch bereitgestellten GITHUB_TOKEN). Expliziter Block, damit Caller
+    # named statt `secrets: inherit` übergeben können → ihr cross-repo
+    # RUNNER_SWITCH_PAT leakt dann nicht mehr in diese Reusable + Sub-Reusables.
+    # required:false → bestehende inherit-Caller (Smoke/Alt) laufen unverändert. (Audit P2)
+    secrets:
+      DISCORD_WEBHOOK:
+        required: false
+      SLACK_WEBHOOK:
+        required: false
+      TELEGRAM_BOT_TOKEN:
+        required: false
+      TELEGRAM_CHAT_ID:
+        required: false
+
 permissions:
   contents: read
 
