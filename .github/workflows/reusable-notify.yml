@@ -3,7 +3,7 @@
 #
 # Sends CI/CD failure alerts to Discord, Slack, Telegram.
 # Usage:
-#   uses: ADZA-Group/shared-workflows/.github/workflows/reusable-notify.yml@main
+#   uses: ADZA-Group/shared-workflows/.github/workflows/reusable-notify.yml@v1
 #   with:
 #     app-name: "MyApp"
 #     status: "failure"

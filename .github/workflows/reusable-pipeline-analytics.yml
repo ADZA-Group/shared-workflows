@@ -3,7 +3,7 @@
 #
 # Weekly report: success rate, duration trends, flaky tests.
 # Usage:
-#   uses: ADZA-Group/shared-workflows/.github/workflows/reusable-pipeline-analytics.yml@main
+#   uses: ADZA-Group/shared-workflows/.github/workflows/reusable-pipeline-analytics.yml@v1
 #   with:
 #     app-name: "RecyclageApp"
 #     workflow-name: "CI/CD"

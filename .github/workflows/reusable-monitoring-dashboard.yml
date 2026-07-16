@@ -5,7 +5,7 @@
 # Runs weekly or on-demand, aggregates data across repos.
 #
 # Usage:
-#   uses: ADZA-Group/shared-workflows/.github/workflows/reusable-monitoring-dashboard.yml@main
+#   uses: ADZA-Group/shared-workflows/.github/workflows/reusable-monitoring-dashboard.yml@v1
 #   with:
 #     app-name: "RecyclageApp"
 #     app-url: "https://app.adza-group.ch"
