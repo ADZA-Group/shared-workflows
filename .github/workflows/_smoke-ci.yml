@@ -4,6 +4,8 @@ name: "🧪 Smoke — CI Orchestrator"
 
 on:
   workflow_dispatch:
+  push:
+    branches: [dev]   # TEMP: validiert Audit-Fixes (notify-injection/light-tags/secrets-block) — nach dem Lauf zurücknehmen
 
 permissions:
   contents: read
