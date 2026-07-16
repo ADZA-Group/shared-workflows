@@ -277,7 +277,7 @@ jobs:
       # skippen dort (PR, main-Push, dispatch, schedule validieren immer voll). docker-build
       # akzeptiert security=skipped NUR bei light=='true' → Gate bleibt fail-closed.
       # Opt-out pro App: full-ci-on-dev-push: true.
-      light: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && !inputs.full-ci-on-dev-push }}
+      light: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') && !inputs.full-ci-on-dev-push }}
       start_time: ${{ steps.t.outputs.epoch }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
