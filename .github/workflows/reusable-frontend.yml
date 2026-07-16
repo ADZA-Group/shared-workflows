@@ -211,7 +211,7 @@ jobs:
             ASSERT_ARGS="--preset=lighthouse:recommended"
           fi
           SCORE=$(lhci assert $ASSERT_ARGS 2>/dev/null \
-            | grep -oE 'performance: [0-9]+' | grep -oE '[0-9]+' || echo 0)
+            | grep -oE 'performance: [0-9]+' | grep -oE '[0-9]+' | head -1 || echo 0)
           {
             echo "## 🔦 Lighthouse"
             echo "| Metric | Value |"
@@ -220,6 +220,12 @@ jobs:
             echo "| Budget | ${LHCI_BUDGET} |"
             echo "| URL | ${LHCI_URL} |"
           } >> "$GITHUB_STEP_SUMMARY"
+          # Budget-Vergleich war vorher rein kosmetisch (SCORE nie geprüft → Gate konnte
+          # nie failen). Advisory-warning bei Unterschreitung — Lighthouse ist zu flaky
+          # für ein hartes Deploy-Gate, daher bewusst kein exit 1. (Audit P3 Lügen-Grün)
+          if [ -n "${LHCI_BUDGET:-}" ] && [ "${SCORE:-0}" -lt "${LHCI_BUDGET}" ]; then
+            echo "::warning::Lighthouse performance ${SCORE} < budget ${LHCI_BUDGET}"
+          fi
         continue-on-error: ${{ !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
 
       - name: Accessibility (pa11y-ci)

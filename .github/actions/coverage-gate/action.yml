@@ -74,7 +74,13 @@ runs:
       if: ${{ inputs.diff-coverage-threshold != '0' }}
       shell: bash
       run: |
-        pip install -q diff-cover || { echo "::warning::diff-cover install failed — skipping diff-coverage"; exit 0; }
+        pip install -q diff-cover || {
+          echo "::warning::diff-cover install failed";
+          if [ "${{ inputs.diff-coverage-blocking }}" = "true" ]; then
+            echo "::error::diff-cover install failed on a blocking run (main/tag) — Gate NICHT stumm grün durchwinken"; exit 1;
+          fi
+          exit 0;
+        }
         BR="${{ inputs.diff-coverage-compare-branch }}"
         git fetch origin "${BR#origin/}" --depth=200 2>/dev/null || true
         echo "## 🔬 Diff coverage (changed vs ${BR})" >> "$GITHUB_STEP_SUMMARY"
