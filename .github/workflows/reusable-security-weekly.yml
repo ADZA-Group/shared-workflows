@@ -107,7 +107,9 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
       - name: Install + run Grype
         run: |
-          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+          # install.sh + grype-Version auf einen unveränderlichen Release-Tag gepinnt
+          # (war @main = mutabel → ungeprüfter Code auf self-hosted Runner). (Audit P3)
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/v0.115.0/install.sh | sh -s -- -b /usr/local/bin v0.115.0
           grype dir:. --output table 2>&1 | tee /tmp/grype.txt || true
           {
             echo "## 🔐 Grype"
