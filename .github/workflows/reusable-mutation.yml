@@ -46,9 +46,13 @@ jobs:
 
       - name: Determine target files (${{ inputs.mode }})
         id: targets
+        # SECURITY: base-ref (Branch-Name) über env statt ${{ }} direkt in run:
+        env:
+          MODE: ${{ inputs.mode }}
+          BASE_REF: ${{ inputs.base-ref }}
         run: |
-          if [ "${{ inputs.mode }}" = "incremental" ]; then
-            FILES=$(git diff --name-only "origin/${{ inputs.base-ref }}...HEAD" -- '*.py' 2>/dev/null \
+          if [ "$MODE" = "incremental" ]; then
+            FILES=$(git diff --name-only "origin/${BASE_REF}...HEAD" -- '*.py' 2>/dev/null \
               | grep -v '/test' | grep -v '^tests/' | head -30 \
               | tr '\n' ' ' | xargs || echo "")
             echo "files=${FILES}" >> "$GITHUB_OUTPUT"
@@ -57,9 +61,13 @@ jobs:
           fi
 
       - name: Run mutmut
+        # SECURITY: aus git-diff abgeleitete Dateinamen NIE per ${{ }} in run: —
+        # eine Datei namens '$(cmd).py' wäre sonst Command-Injection (self-hosted). Über env.
+        env:
+          MODE: ${{ inputs.mode }}
+          O_FILES: ${{ steps.targets.outputs.files }}
         run: |
-          MODE="${{ inputs.mode }}"
-          FILES="${{ steps.targets.outputs.files }}"
+          FILES="$O_FILES"
           if [ "$MODE" = "incremental" ] && [ -z "$FILES" ]; then
             echo "::notice::no non-test Python changes — skipping mutation"
             exit 0
