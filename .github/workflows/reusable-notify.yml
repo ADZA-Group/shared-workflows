@@ -58,14 +58,24 @@ jobs:
     steps:
       - name: Build alert context
         id: ctx
+        # SECURITY: untrusted context (ref_name/actor können Shell-Metazeichen
+        # enthalten — git-Refs erlauben $ ( ) ` ' " ; | &) NIE per ${{ }} direkt
+        # in run: interpolieren. Über env einlesen, im Skript nur "$VAR" nutzen.
+        env:
+          IN_BRANCH: ${{ inputs.branch || github.ref_name }}
+          IN_SHA: ${{ inputs.sha || github.sha }}
+          IN_RUN_URL: ${{ inputs.run-url || format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
+          IN_ACTOR: ${{ github.actor }}
+          IN_STATUS: ${{ inputs.status }}
+          IN_APP: ${{ inputs.app-name }}
         run: |
-          BRANCH="${{ inputs.branch || github.ref_name }}"
-          SHA="${{ inputs.sha || github.sha }}"
+          BRANCH="$IN_BRANCH"
+          SHA="$IN_SHA"
           SHORT_SHA="${SHA:0:7}"
-          RUN_URL="${{ inputs.run-url || format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}"
-          ACTOR="${{ github.actor }}"
-          STATUS="${{ inputs.status }}"
-          APP="${{ inputs.app-name }}"
+          RUN_URL="$IN_RUN_URL"
+          ACTOR="$IN_ACTOR"
+          STATUS="$IN_STATUS"
+          APP="$IN_APP"
 
           if [ "$STATUS" = "failure" ]; then
             ICON="🔴"
@@ -89,6 +99,7 @@ jobs:
         continue-on-error: true
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          O_BRANCH: ${{ steps.ctx.outputs.branch }}
         run: |
           curl -sSf -X POST "$DISCORD_WEBHOOK" \
             -H "Content-Type: application/json" \
@@ -99,7 +110,7 @@ jobs:
                 "color": ${{ steps.ctx.outputs.color }},
                 "fields": [
                   {"name": "App", "value": "`${{ steps.ctx.outputs.app }}`", "inline": true},
-                  {"name": "Branch", "value": "`${{ steps.ctx.outputs.branch }}`", "inline": true},
+                  {"name": "Branch", "value": "`'"$O_BRANCH"'`", "inline": true},
                   {"name": "Commit", "value": "`${{ steps.ctx.outputs.sha }}`", "inline": true},
                   {"name": "Author", "value": "${{ steps.ctx.outputs.actor }}", "inline": true},
                   {"name": "Details", "value": "[View Run](${{ steps.ctx.outputs.url }})"}
@@ -113,6 +124,7 @@ jobs:
         continue-on-error: true
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          O_BRANCH: ${{ steps.ctx.outputs.branch }}
         run: |
           curl -sSf -X POST "$SLACK_WEBHOOK" \
             -H "Content-Type: application/json" \
@@ -121,7 +133,7 @@ jobs:
               "blocks": [
                 {"type": "header", "text": {"type": "plain_text", "text": "${{ steps.ctx.outputs.icon }} ${{ steps.ctx.outputs.app }} — ${{ steps.ctx.outputs.status }}"}},
                 {"type": "section", "fields": [
-                  {"type": "mrkdwn", "text": "*Branch:*\n`${{ steps.ctx.outputs.branch }}`"},
+                  {"type": "mrkdwn", "text": "*Branch:*\n`'"$O_BRANCH"'`"},
                   {"type": "mrkdwn", "text": "*Commit:*\n`${{ steps.ctx.outputs.sha }}`"},
                   {"type": "mrkdwn", "text": "*Author:*\n${{ steps.ctx.outputs.actor }}"}
                 ]},
@@ -135,9 +147,10 @@ jobs:
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          O_BRANCH: ${{ steps.ctx.outputs.branch }}
         run: |
           MSG="${{ steps.ctx.outputs.icon }} <b>${{ steps.ctx.outputs.app }} CI/CD — ${{ steps.ctx.outputs.status }}</b>%0A"
-          MSG+="<b>Branch:</b> <code>${{ steps.ctx.outputs.branch }}</code>%0A"
+          MSG+="<b>Branch:</b> <code>${O_BRANCH}</code>%0A"
           MSG+="<b>Commit:</b> <code>${{ steps.ctx.outputs.sha }}</code>%0A"
           MSG+="<b>Author:</b> ${{ steps.ctx.outputs.actor }}%0A"
           MSG+="<a href='${{ steps.ctx.outputs.url }}'>View Run</a>"
