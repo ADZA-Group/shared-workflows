@@ -3,7 +3,7 @@
 #
 # Polls an endpoint until ready, with security header validation.
 # Usage:
-#   - uses: ADZA-Group/shared-workflows/.github/actions/health-check@main
+#   - uses: ADZA-Group/shared-workflows/.github/actions/health-check@v1
 #     with:
 #       url: "https://app.adza-group.ch"
 #       max-retries: 20
