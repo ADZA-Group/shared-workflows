@@ -50,6 +50,11 @@ runs:
           SELECT=(${{ inputs.test-paths }})
         fi
         # Flaky mitigation: rerun failed tests (pytest-rerunfailures). Reruns appear in junit.
+        # ACHTUNG Paketname: `pytest-rerunfailures` (ohne Bindestrich in der Mitte).
+        # Bis 2026-07-15 stand hier `pytest-rerun-failures` — das gibt es auf PyPI NICHT
+        # (404), der Install schlug jedes Mal still fehl und `test-reruns` war seit
+        # v1.5.0 fleet-weit wirkungslos. Der Import-Check unten ist die Absicherung:
+        # er meldet jetzt LAUT, statt Reruns kommentarlos wegzulassen.
         RERUN=()
         if [ "${{ inputs.test-reruns }}" != "0" ]; then
           pip install -q pytest-rerunfailures || echo "::warning::pytest-rerunfailures install failed — flaky reruns disabled"
