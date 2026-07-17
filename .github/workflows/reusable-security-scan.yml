@@ -8,7 +8,7 @@
 # Debian-13 self-hosted safe: uses setup-python-deps composite (NOT actions/setup-python).
 #
 # Usage:
-#   uses: adza-group/shared-workflows/.github/workflows/reusable-security-scan.yml@v1
+#   uses: adza-group/shared-workflows/.github/workflows/reusable-security-scan.yml@release-v1.10.0
 #   secrets: inherit
 # ═══════════════════════════════════════════════════════════════
 
@@ -98,7 +98,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
-      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1
+      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@release-v1.10.0
         with:
           install-requirements: "false"
           extra-packages: "bandit[toml]==1.*"
@@ -134,7 +134,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
-      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1
+      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@release-v1.10.0
         with:
           install-requirements: "false"
           extra-packages: "semgrep==1.*"
@@ -185,7 +185,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
-      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1
+      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@release-v1.10.0
         with:
           install-requirements: "false"
           extra-packages: "pip-audit==2.*"
@@ -265,6 +265,6 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
-      - uses: adza-group/shared-workflows/.github/actions/opa-policy@v1
+      - uses: adza-group/shared-workflows/.github/actions/opa-policy@release-v1.10.0
         with:
           blocking: 'false'
