@@ -103,6 +103,17 @@ if [ -n "$VERSION_TAG" ]; then
   ok "Version-Tag $VERSION_TAG ist frei"
 fi
 
+# ── Gate: Committer-Identity ermittelbar? ─────────────────────
+# Annotated Tags (-a) brauchen eine Identity wie ein Commit. Dieser Clone hat
+# bewusst KEINE user-config (globale ADZA-Regel: nie `git config` setzen) → wir
+# ziehen sie per -c aus der Historie. Als Gate hier oben, damit --dry-run es fängt.
+TAG_NAME="$(git log -1 --format='%an' "$RELEASE_SHA" 2>/dev/null || true)"
+TAG_EMAIL="$(git log -1 --format='%ae' "$RELEASE_SHA" 2>/dev/null || true)"
+[ -n "$TAG_NAME" ] && [ -n "$TAG_EMAIL" ] \
+  || die "keine Committer-Identity aus der Historie ermittelbar — annotated Tags brauchen sie."
+ok "Tag-Identity: $TAG_NAME <$TAG_EMAIL>"
+gitid() { git -c user.name="$TAG_NAME" -c user.email="$TAG_EMAIL" "$@"; }
+
 # ── Zusammenfassung ───────────────────────────────────────────
 echo ""
 echo "── Release-Plan ──────────────────────────────────────────"
@@ -132,11 +143,11 @@ ok "Race-Recheck: @v1 unverändert"
 
 # ── Push (der eigentliche Move) ───────────────────────────────
 if [ -n "$VERSION_TAG" ]; then
-  git tag -a "$VERSION_TAG" -m "Release $VERSION_TAG" "$RELEASE_SHA"
+  gitid tag -a "$VERSION_TAG" -m "Release $VERSION_TAG" "$RELEASE_SHA"
   git push origin "$VERSION_TAG"
   ok "Punkt-Tag $VERSION_TAG gepusht"
 fi
-git tag -f -a v1 -m "v1 → ${VERSION_TAG:-$RELEASE_SHA}" "$RELEASE_SHA"
+gitid tag -f -a v1 -m "v1 → ${VERSION_TAG:-$RELEASE_SHA}" "$RELEASE_SHA"
 git push -f origin v1
 ok "@v1 bewegt"
 
