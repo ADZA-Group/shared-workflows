@@ -6,7 +6,7 @@
 # (no cross-shard collision). Dual-gate: advisory PR/dev, hard main/tags.
 #
 # Usage:
-#   uses: adza-group/shared-workflows/.github/workflows/reusable-e2e.yml@merge/v1-into-dev
+#   uses: adza-group/shared-workflows/.github/workflows/reusable-e2e.yml@v1
 #   with: { boot-command: "...", health-url: "http://localhost:8000/health" }
 #   secrets: inherit
 # ═══════════════════════════════════════════════════════════════
@@ -119,7 +119,7 @@ jobs:
             /tmp/e2e-venv/bin/pip install --retries 3 --timeout 60 -r requirements.txt
           fi
 
-      - uses: adza-group/shared-workflows/.github/actions/start-app@merge/v1-into-dev
+      - uses: adza-group/shared-workflows/.github/actions/start-app@v1
         with:
           boot-command: ${{ inputs.boot-command }}
           health-url: ${{ inputs.health-url }}
