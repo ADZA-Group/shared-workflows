@@ -5,7 +5,7 @@
 # Install: npm ci when a lockfile exists, else npm install (+warning).
 #
 # Usage:
-#   uses: adza-group/shared-workflows/.github/workflows/reusable-frontend.yml@v1
+#   uses: adza-group/shared-workflows/.github/workflows/reusable-frontend.yml@merge/v1-into-dev
 #   with: { frontend-dir: frontend }
 # ═══════════════════════════════════════════════════════════════
 

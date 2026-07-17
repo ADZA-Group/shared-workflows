@@ -9,7 +9,7 @@
 # Runner-label-driven (self-hosted-capable).
 #
 # Usage:
-#   uses: adza-group/shared-workflows/.github/workflows/reusable-config-ci.yml@v1
+#   uses: adza-group/shared-workflows/.github/workflows/reusable-config-ci.yml@merge/v1-into-dev
 #   with: { runner-label: '["ubuntu-latest"]' }
 #   secrets: inherit
 # ═══════════════════════════════════════════════════════════════
@@ -126,7 +126,7 @@ jobs:
       - name: OPA / conftest (compose policy)
         if: ${{ inputs.run-opa }}
         continue-on-error: ${{ !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
-        uses: adza-group/shared-workflows/.github/actions/opa-policy@v1
+        uses: adza-group/shared-workflows/.github/actions/opa-policy@merge/v1-into-dev
         with:
           dockerfile: "Dockerfile.__none__"   # config repos have no Dockerfile → composite skips it
           compose-glob: ${{ inputs.compose-glob }}

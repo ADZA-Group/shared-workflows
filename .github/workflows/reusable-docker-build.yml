@@ -6,7 +6,7 @@
 # → build+push (multi-arch) → cosign keyless sign + SLSA provenance.
 #
 # Usage:
-#   uses: adza-group/shared-workflows/.github/workflows/reusable-docker-build.yml@v1
+#   uses: adza-group/shared-workflows/.github/workflows/reusable-docker-build.yml@merge/v1-into-dev
 #   with:
 #     image-name: ghcr.io/adza-group/my-app
 #     push: true
