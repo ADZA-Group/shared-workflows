@@ -705,12 +705,24 @@ jobs:
 
   docker-build:
     name: "🐳 Build"
-    needs: [changes, lint-python, test-matrix]
-    # lint-dockerfile + license-check are advisory (don't gate the build); lint-python
-    # + tests are the hard gate. Keeps an advisory hadolint finding from skipping build.
+    needs: [changes, lint-python, test-matrix, security, coverage]
+    # HARD DEPLOY GATE (Audit 2026-07-16, P1): security + coverage gaten jetzt den
+    # Build/Push. Vorher liefen sie nur PARALLEL — ein committetes Secret (gitleaks)
+    # oder ein bandit-HIGH färbte den Run zwar rot, das Image ging aber trotzdem nach
+    # GHCR und Watchtower zog es auf die (self-hosted) Prod-LXC.
+    # fail-closed: security MUSS success sein; die EINZIGE erlaubte Skip-Quelle ist
+    # light=='true' (dev-Push, CI-Diät v1.9.0) — jede andere Skip-/Fail-Ursache blockt.
+    # Sicher, weil security (any_code||ci) und docker-build (any_code||docker||ci)
+    # dieselbe Envelope teilen: any_code = python||docker||frontend schliesst docker
+    # ein → security kann nie skippen, während docker-build läuft (ausser bei light).
+    # coverage nutzt != 'failure' (skipped erlaubt: non-py / opt-out).
+    # lint-dockerfile + license-check bleiben advisory (gaten den Build nicht).
     if: >-
       ${{ always() &&
       needs.lint-python.result != 'failure' &&
+      (needs.security.result == 'success' ||
+       (needs.security.result == 'skipped' && needs.changes.outputs.light == 'true')) &&
+      needs.coverage.result != 'failure' &&
       (needs.test-matrix.result == 'success' || needs.test-matrix.result == 'skipped') &&
       (needs.changes.outputs.any_code == 'true' || needs.changes.outputs.docker == 'true' || needs.changes.outputs.ci == 'true') }}
     permissions:
