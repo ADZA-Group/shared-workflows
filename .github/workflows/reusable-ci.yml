@@ -206,6 +206,21 @@ on:
         default: ""
         description: "Optional requirements file installed before api-contract boot"
 
+    # Nur die Notify-Webhooks sind echte Secrets (alles andere nutzt den
+    # automatisch bereitgestellten GITHUB_TOKEN). Expliziter Block, damit Caller
+    # named statt `secrets: inherit` übergeben können → ihr cross-repo
+    # RUNNER_SWITCH_PAT leakt dann nicht mehr in diese Reusable + Sub-Reusables.
+    # required:false → bestehende inherit-Caller (Smoke/Alt) laufen unverändert. (Audit P2)
+    secrets:
+      DISCORD_WEBHOOK:
+        required: false
+      SLACK_WEBHOOK:
+        required: false
+      TELEGRAM_BOT_TOKEN:
+        required: false
+      TELEGRAM_CHAT_ID:
+        required: false
+
 permissions:
   contents: read
 
@@ -227,7 +242,7 @@ jobs:
       # skippen dort. PR, main-Push, dispatch und schedule validieren immer voll.
       # docker-build gated auf dieser Linie nicht auf security (needs: changes/lint/test) →
       # kein Kaskadenrisiko. Opt-out pro App: full-ci-on-dev-push: true.
-      light: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && !inputs.full-ci-on-dev-push }}
+      light: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') && !inputs.full-ci-on-dev-push }}
       start_time: ${{ steps.t.outputs.epoch }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
@@ -597,10 +612,20 @@ jobs:
           cache-key-suffix: hypothesis
       - name: Run Hypothesis tests
         run: |
-          COUNT=$(pytest tests/ -m "hypothesis" --collect-only -q 2>/dev/null | grep -oE '[0-9]+ test' | cut -d' ' -f1 || echo 0)
-          if [ "${COUNT:-0}" -eq 0 ]; then
+          # Collection-Exitcode trennen: 5 = keine Tests (skip), 0 = Tests da, sonst =
+          # kaputt (fail). Vorher verschluckte 2>/dev/null einen Import-/Collection-Fehler
+          # → grün als "keine Tests". (Audit P3 Lügen-Grün)
+          set +e
+          pytest tests/ -m "hypothesis" --collect-only -q >/tmp/hypo-collect.txt 2>&1
+          rc=$?
+          set -e
+          if [ "$rc" -eq 5 ]; then
             echo "::notice::no @hypothesis.given tests found — skipping"
             exit 0
+          elif [ "$rc" -ne 0 ]; then
+            cat /tmp/hypo-collect.txt
+            echo "::error::pytest collection failed (rc=$rc) — Testsammlung kaputt, nicht 'keine Tests'"
+            exit 1
           fi
           pytest tests/ -m "hypothesis" --hypothesis-seed=0 --timeout=60 -p no:cacheprovider
 
@@ -921,13 +946,15 @@ jobs:
 
   notify:
     name: "🚨 Notify"
-    needs: [lint-python, security, test-matrix, coverage, docker-build, telemetry]
+    needs: [lint-python, security, test-matrix, coverage, docker-build, verify-staging, telemetry]
     if: >-
       ${{ always() && (
         needs.lint-python.result == 'failure' ||
+        needs.security.result == 'failure' ||
         needs.test-matrix.result == 'failure' ||
         needs.coverage.result == 'failure' ||
-        needs.docker-build.result == 'failure'
+        needs.docker-build.result == 'failure' ||
+        needs.verify-staging.result == 'failure'
       ) }}
     permissions:
       contents: read
