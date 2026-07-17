@@ -4,6 +4,12 @@ name: "🧪 Smoke — CI Orchestrator"
 
 on:
   workflow_dispatch:
+  # Release-Branches smoken automatisch: kein temp-Trigger-Tanz mehr (der vergessen
+  # werden konnte), und der gesmokete Commit ist identisch mit dem getaggten —
+  # erfüllt damit das exakt-SHA-Gate von scripts/release-v1.sh. Nach dem Release
+  # ist der Branch weg → Trigger feuert nie wieder. (Audit 2026-07-16)
+  push:
+    branches: ["release-*"]
 
 permissions:
   actions: read          # security/codeql nested job claims actions:read (codeql-action#2117)
