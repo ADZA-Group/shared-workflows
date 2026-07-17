@@ -65,6 +65,11 @@ on:
         type: boolean
         default: false
         description: "main pushes :candidate-<sha> instead of :latest; a later promote job retags after staging is green"
+      light:
+        required: false
+        type: boolean
+        default: false
+        description: "dev-push (light CI): Trivy/SBOM/Sign ueberspringen — nur Build+Push. main/PR/tag bleiben voll gescannt+signiert."
       build-args:
         required: false
         type: string
@@ -163,7 +168,7 @@ jobs:
           fi
 
       - name: "🔍 Trivy Image Scan (gate)"
-        if: ${{ inputs.run-trivy }}
+        if: ${{ inputs.run-trivy && !inputs.light }}
         env:
           # Authentifizierter GHCR-Pull der Trivy-Vuln-DB (ghcr.io/aquasecurity/trivy-db).
           # Ohne Token -> anonymer Pull -> intermittierend "DENIED: denied" -> FATAL, Build rot.
@@ -183,7 +188,7 @@ jobs:
         run: ${{ inputs.smoke-command }}
 
       - name: "📋 SBOM (CycloneDX)"
-        if: ${{ inputs.generate-sbom }}
+        if: ${{ inputs.generate-sbom && !inputs.light }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # s.o. — authentifizierter Trivy-DB-Pull
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
@@ -193,7 +198,7 @@ jobs:
           output: sbom.json
 
       - name: Upload SBOM
-        if: ${{ inputs.generate-sbom }}
+        if: ${{ inputs.generate-sbom && !inputs.light }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: sbom
@@ -268,18 +273,18 @@ jobs:
         run: echo "tag=${{ inputs.image-name }}:candidate-${{ github.sha }}" >> "$GITHUB_OUTPUT"
 
       - name: Install cosign
-        if: ${{ inputs.push && inputs.sign-image }}
+        if: ${{ inputs.push && inputs.sign-image && !inputs.light }}
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
 
       - name: Cosign sign (keyless)
-        if: ${{ inputs.push && inputs.sign-image }}
+        if: ${{ inputs.push && inputs.sign-image && !inputs.light }}
         continue-on-error: true   # best-effort: Sigstore/Rekor outages or org limits must not fail a pushed build
         env:
           DIGEST: ${{ steps.build-push.outputs.digest }}
         run: cosign sign --yes "${{ inputs.image-name }}@${DIGEST}"
 
       - name: SLSA build provenance
-        if: ${{ inputs.push && inputs.sign-image }}
+        if: ${{ inputs.push && inputs.sign-image && !inputs.light }}
         continue-on-error: true   # GitHub Artifact Attestations need a paid plan / public repo; advisory on free private orgs
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32  # v4.1.0
         with:
