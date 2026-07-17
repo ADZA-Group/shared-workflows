@@ -38,7 +38,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@release-v1.10.0
+      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1
         with:
           install-requirements: "true"
           extra-packages: "mutmut==2.*"
