@@ -6,7 +6,7 @@
 # default — apps without a spec are a no-op). Dual-gate, runner-label-driven.
 #
 # Usage:
-#   uses: adza-group/shared-workflows/.github/workflows/reusable-api-contract.yml@v1
+#   uses: adza-group/shared-workflows/.github/workflows/reusable-api-contract.yml@release-v1.10.0
 #   with:
 #     openapi-spec: "http://localhost:5000/openapi.json"
 #     boot-command: "python app.py"
@@ -85,7 +85,7 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
-      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1
+      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@release-v1.10.0
         with:
           install-requirements: "false"
           extra-packages: "schemathesis==${{ inputs.schemathesis-version }} ${{ inputs.hypothesis-pin }}"
@@ -103,7 +103,7 @@ jobs:
       - name: Start app
         if: ${{ inputs.boot-command != '' }}
         id: start
-        uses: adza-group/shared-workflows/.github/actions/start-app@v1
+        uses: adza-group/shared-workflows/.github/actions/start-app@release-v1.10.0
         with:
           boot-command: ${{ inputs.boot-command }}
           health-url: ${{ inputs.health-url }}

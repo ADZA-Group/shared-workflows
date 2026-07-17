@@ -6,7 +6,7 @@
 # (e.g. on main / nightly-vs-prod) to fail the job on a breach.
 #
 # Usage:
-#   uses: adza-group/shared-workflows/.github/workflows/reusable-load-test.yml@v1
+#   uses: adza-group/shared-workflows/.github/workflows/reusable-load-test.yml@release-v1.10.0
 #   with:
 #     target-url: "https://i-app.adza-group.ch"
 #     blocking: false
