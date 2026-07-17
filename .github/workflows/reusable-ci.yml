@@ -828,6 +828,9 @@ jobs:
       image-size-limit-mb: ${{ inputs.image-size-limit-mb }}
       runner-label: ${{ inputs.runner-label }}
       gated-promotion: ${{ inputs.gated-promotion }}
+      # dev-Pushes (light): Image bauen + pushen (Staging braucht es), aber Trivy/SBOM/Sign
+      # ueberspringen — ~90s je Push, und die Verify-Gates greifen ohnehin nur main/staging.
+      light: ${{ needs.changes.outputs.light == 'true' }}
     secrets: inherit
 
   verify-staging:
