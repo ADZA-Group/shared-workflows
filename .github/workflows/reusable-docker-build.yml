@@ -169,6 +169,10 @@ jobs:
 
       - name: "🔍 Trivy Image Scan (gate)"
         if: ${{ inputs.run-trivy && !inputs.light }}
+        env:
+          # Authentifizierter GHCR-Pull der Trivy-Vuln-DB (ghcr.io/aquasecurity/trivy-db).
+          # Ohne Token -> anonymer Pull -> intermittierend "DENIED: denied" -> FATAL, Build rot.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           image-ref: ${{ inputs.image-name }}:ci-${{ github.run_id }}
@@ -185,6 +189,8 @@ jobs:
 
       - name: "📋 SBOM (CycloneDX)"
         if: ${{ inputs.generate-sbom && !inputs.light }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # s.o. — authentifizierter Trivy-DB-Pull
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           image-ref: ${{ inputs.image-name }}:ci-${{ github.run_id }}

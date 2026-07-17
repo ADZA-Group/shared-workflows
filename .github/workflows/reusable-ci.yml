@@ -32,6 +32,15 @@ on:
         required: false
         type: string
         default: '["self-hosted", "linux", "proxmox"]'
+      cloud-runner-label:
+        # Runner fuer die LAN-unabhaengige Fan-out-Phase (Lints/Tests/Security/Quality).
+        # HYBRID DORMANT: Default = self-hosted, weil GitHub-hosted Runner fuer diesen
+        # Account billing-gesperrt sind ("payments failed / spending limit"). Sobald
+        # Billing gefixt ist: Caller setzt cloud-runner-label: '["ubuntu-latest"]' ->
+        # Fan-out laeuft voll parallel auf GitHubs Infra (loest GHCR-Flakes + CodeQL-OOM).
+        required: false
+        type: string
+        default: '["self-hosted", "linux", "proxmox"]'
       python-version:
         required: false
         type: string
@@ -271,7 +280,7 @@ permissions:
 jobs:
   changes:
     name: "🔍 Detect Changes"
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -349,7 +358,7 @@ jobs:
     name: "🐍 Lint (ruff)"
     needs: changes
     if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true' }}
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
@@ -367,7 +376,7 @@ jobs:
     name: "🐳 Lint Dockerfile"
     needs: changes
     if: ${{ needs.changes.outputs.docker == 'true' || needs.changes.outputs.ci == 'true' }}
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
     timeout-minutes: 5
     continue-on-error: true   # advisory (incl. main) — hadolint findings inform, don't block the pipeline
     steps:
@@ -388,12 +397,13 @@ jobs:
   code-quality:
     name: "📊 Code Quality"
     needs: changes
-    # CI-Diaet: auf dev-/Feature-PUSHES aus. Der Job ist dort ohnehin nur
-    # beratend (continue-on-error) — kostete aber ~3-4 min Runner-104-Zeit
-    # pro Push, auf die niemand wartet. PR, main, dispatch und der naechtliche
-    # schedule-Lauf fahren ihn weiter voll (dort gilt light=false).
+    # CI-Diaet (v1.9.4): auf dev-/Feature-PUSHES aus. Der Job ist dort ohnehin
+    # continue-on-error — reine Beratung, auf die niemand wartet, aber ~3-4 min
+    # Runner-104-Zeit pro Push. PR, main, dispatch und der naechtliche schedule-
+    # Lauf fahren ihn weiter voll. Schreibweise wie security/property-tests:
+    # Job-Outputs sind STRINGS, !light waere immer falsch.
     if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true') && needs.changes.outputs.light != 'true' }}
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
     timeout-minutes: 10
     continue-on-error: true
     steps:
@@ -416,12 +426,13 @@ jobs:
   dead-code:
     name: "💀 Dead Code"
     needs: changes
-    # CI-Diaet: auf dev-/Feature-PUSHES aus. Der Job ist dort ohnehin nur
-    # beratend (continue-on-error) — kostete aber ~3-4 min Runner-104-Zeit
-    # pro Push, auf die niemand wartet. PR, main, dispatch und der naechtliche
-    # schedule-Lauf fahren ihn weiter voll (dort gilt light=false).
+    # CI-Diaet (v1.9.4): auf dev-/Feature-PUSHES aus. Der Job ist dort ohnehin
+    # continue-on-error — reine Beratung, auf die niemand wartet, aber ~3-4 min
+    # Runner-104-Zeit pro Push. PR, main, dispatch und der naechtliche schedule-
+    # Lauf fahren ihn weiter voll. Schreibweise wie security/property-tests:
+    # Job-Outputs sind STRINGS, !light waere immer falsch.
     if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true') && needs.changes.outputs.light != 'true' }}
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
     timeout-minutes: 10
     continue-on-error: true
     steps:
@@ -444,12 +455,13 @@ jobs:
   todo-tracker:
     name: "📌 TODOs"
     needs: changes
-    # CI-Diaet: auf dev-/Feature-PUSHES aus. Der Job ist dort ohnehin nur
-    # beratend (continue-on-error) — kostete aber ~3-4 min Runner-104-Zeit
-    # pro Push, auf die niemand wartet. PR, main, dispatch und der naechtliche
-    # schedule-Lauf fahren ihn weiter voll (dort gilt light=false).
+    # CI-Diaet (v1.9.4): auf dev-/Feature-PUSHES aus. Der Job ist dort ohnehin
+    # continue-on-error — reine Beratung, auf die niemand wartet, aber ~3-4 min
+    # Runner-104-Zeit pro Push. PR, main, dispatch und der naechtliche schedule-
+    # Lauf fahren ihn weiter voll. Schreibweise wie security/property-tests:
+    # Job-Outputs sind STRINGS, !light waere immer falsch.
     if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true') && needs.changes.outputs.light != 'true' }}
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
@@ -477,12 +489,13 @@ jobs:
   license-check:
     name: "⚖️ Licenses"
     needs: changes
-    # CI-Diaet: auf dev-/Feature-PUSHES aus. Der Job ist dort ohnehin nur
-    # beratend (continue-on-error) — kostete aber ~3-4 min Runner-104-Zeit
-    # pro Push, auf die niemand wartet. PR, main, dispatch und der naechtliche
-    # schedule-Lauf fahren ihn weiter voll (dort gilt light=false).
+    # CI-Diaet (v1.9.4): auf dev-/Feature-PUSHES aus. Der Job ist dort ohnehin
+    # continue-on-error — reine Beratung, auf die niemand wartet, aber ~3-4 min
+    # Runner-104-Zeit pro Push. PR, main, dispatch und der naechtliche schedule-
+    # Lauf fahren ihn weiter voll. Schreibweise wie security/property-tests:
+    # Job-Outputs sind STRINGS, !light waere immer falsch.
     if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true') && needs.changes.outputs.light != 'true' }}
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
     timeout-minutes: 10
     continue-on-error: ${{ !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
     steps:
@@ -505,7 +518,7 @@ jobs:
     name: "📝 Commit Lint"
     needs: changes
     if: ${{ github.event_name == 'pull_request' }}
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
     timeout-minutes: 5
     continue-on-error: true
     steps:
@@ -533,14 +546,14 @@ jobs:
     uses: adza-group/shared-workflows/.github/workflows/reusable-security-scan.yml@v1
     with:
       python-version: ${{ inputs.python-version }}
-      runner-label: ${{ inputs.runner-label }}
+      runner-label: ${{ inputs.cloud-runner-label }}
     secrets: inherit
 
   test-matrix:
     name: "🧪 Test"
     needs: changes
     if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true' }}
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -560,6 +573,7 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+          --tmpfs /var/lib/postgresql/data:rw
       redis:
         image: redis:7-alpine
         ports:
@@ -616,7 +630,7 @@ jobs:
     name: "📊 Coverage Gate"
     needs: test-matrix
     if: ${{ always() && needs.test-matrix.result == 'success' }}
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
@@ -639,7 +653,12 @@ jobs:
     name: "📋 Test Results"
     needs: test-matrix
     if: ${{ always() && needs.test-matrix.result != 'skipped' }}
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    # Reines Reporting (publiziert Test-Zaehler). Der vorgelagerte Docker-Action-
+    # Image-Pull (ghcr.io/enricomi/...) flaket gelegentlich und liegt VOR dem
+    # step-level continue-on-error -> ohne Job-level CoE roetet ein Reporting-
+    # Hiccup die ganze Pipeline, obwohl Tests/Build/Deploy gruen sind.
+    continue-on-error: true
+    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -665,7 +684,7 @@ jobs:
     name: "🔬 Property Tests"
     needs: changes
     if: ${{ inputs.enable-property-tests && (needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true') && needs.changes.outputs.light != 'true' }}
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
     timeout-minutes: 15
     continue-on-error: true
     steps:
@@ -704,7 +723,7 @@ jobs:
     with:
       mode: incremental
       base-ref: main
-      runner-label: ${{ inputs.runner-label }}
+      runner-label: ${{ inputs.cloud-runner-label }}
     secrets: inherit
 
   api-contract:
@@ -720,7 +739,7 @@ jobs:
       boot-command: ${{ inputs.api-boot-command }}
       health-url: ${{ inputs.api-health-url }}
       requirements: ${{ inputs.api-requirements }}
-      runner-label: ${{ inputs.runner-label }}
+      runner-label: ${{ inputs.cloud-runner-label }}
     secrets: inherit
 
   e2e:
@@ -754,7 +773,7 @@ jobs:
     uses: adza-group/shared-workflows/.github/workflows/reusable-frontend.yml@v1
     with:
       frontend-dir: ${{ inputs.frontend-dir }}
-      runner-label: ${{ inputs.runner-label }}
+      runner-label: ${{ inputs.cloud-runner-label }}
       a11y-url: ${{ inputs.a11y-url }}
       a11y-paths: ${{ inputs.a11y-paths }}
       a11y-threshold: ${{ inputs.a11y-threshold }}

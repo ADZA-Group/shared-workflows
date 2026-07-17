@@ -42,8 +42,12 @@ runs:
       id: py
       shell: bash
       run: |
+        for i in 1 2 3 4 5 6; do
+          command -v python3 >/dev/null 2>&1 && break
+          echo "python3 not yet on PATH (try $i) - waiting..."; sleep 3
+        done
         if ! command -v python3 >/dev/null 2>&1; then
-          echo "::error::python3 not found on runner"; exit 1
+          echo "::error::python3 not found on runner after retries"; exit 1
         fi
         # Gewünschte Version bevorzugen, sonst System-python3 + laute Warnung.
         WANT="${{ inputs.python-version }}"

@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read          # security/codeql nested job claims actions:read (codeql-action#2117)
   contents: read
   actions: read          # security/codeql nested job claims actions:read (codeql-action#2117); caller must grant it or startup_failure
   packages: write
@@ -22,6 +23,7 @@ jobs:
     with:
       app-name: smoke-fixture
       runner-label: '["ubuntu-latest"]'   # validate the whole orchestrator on ubuntu (bypasses LXC-104 block)
+      cloud-runner-label: '["ubuntu-latest"]'   # v1-Linie faehrt changes/lints/tests auf cloud-runner-label
       coverage-threshold: 0
       test-shards: '[{"name":"fixture","paths":"tests/fixtures/app","cov":"tests/fixtures/app"}]'
       test-env: "{}"
