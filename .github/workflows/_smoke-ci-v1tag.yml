@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   ci:
-    uses: adza-group/shared-workflows/.github/workflows/reusable-ci.yml@v1.3.1
+    uses: adza-group/shared-workflows/.github/workflows/reusable-ci.yml@v1.10.0
     with:
       app-name: smoke-v1tag
       runner-label: '["ubuntu-latest"]'
