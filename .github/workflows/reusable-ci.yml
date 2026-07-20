@@ -175,6 +175,11 @@ on:
         type: boolean
         default: false
         description: "Enable DAST scan after staging verify (wired in Cycle B)"
+      run-dependency-review:
+        required: false
+        type: boolean
+        default: true
+        description: "Run GHAS dependency-review on PRs. Set false for private repos WITHOUT GitHub Advanced Security (advanced_security: null) — the action hard-errors there. Passed through to reusable-security-scan."
       enable-ghcr-prune:
         required: false
         type: boolean
@@ -547,6 +552,7 @@ jobs:
     with:
       python-version: ${{ inputs.python-version }}
       runner-label: ${{ inputs.cloud-runner-label }}
+      run-dependency-review: ${{ inputs.run-dependency-review }}
     secrets: inherit
 
   test-matrix:
