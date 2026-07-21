@@ -10,6 +10,7 @@ on:
 permissions:
   contents: read
   security-events: write
+  actions: read   # codeql-Job claimt actions:read (github/codeql-action#2117) — Called-Job > Caller = startup_failure, auch wenn run-codeql:false (Plan-Zeit-Check). App-Caller haben es seit v1.3.8, der Smoke fehlte.
 
 jobs:
   security:
