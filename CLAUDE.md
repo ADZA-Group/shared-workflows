@@ -1,7 +1,17 @@
 # CLAUDE.md — `shared-workflows` (ADZA-Group Unified CI)
 
 > **Für Claude (neue Session):** Dies ist der Wiederaufnahme-Handoff für die Unified-CI-Initiative.
-> Stand **2026-07-15**, branch `dev`. **Released: floating `@v1` = `v1.9.4` (commit `6428c11`, ls-remote-verifiziert).**
+> Stand **2026-07-21**, branch `dev`. **Released: floating `@v1` = `v1.10.1` (commit `c98ad45`, ls-remote-verifiziert).**
+>
+> **🚦 v1.10.1 — Nightly-Gate-Fix (2026-07-21, @v1 moved, User-Freigabe via release-v1.sh):**
+> `require-staging-green` lief auch bei `schedule`/`workflow_dispatch`, obwohl `verify-staging` nur bei
+> `push` läuft → `skipped != success` riss JEDE Nightly auf main mit staging-url rot (erster Treffer:
+> footballapp Run 29809152965, 21.07. 07:05 — einziger roter Job war das Gate, Staging/Prod gesund).
+> Fix: Gate-`if` um `github.event_name == 'push'` ergänzt; bei push unverändert hart. Beweis:
+> footballapp main-dispatch 29818810697 grün, Gate+verify beide skipped. Mit-released (waren auf dev):
+> Dependabot-Actions-Bump (PR #11) + `run-dependency-review`-Passthrough (91af07d).
+>
+> Alter Stand (2026-07-15): **Released: floating `@v1` = `v1.9.4` (commit `6428c11`, ls-remote-verifiziert).**
 >
 > **🥗 v1.9.4 — CI-Diät Teil 2 (Parallel-Session):** `code-quality` (2m43), `dead-code` (2m50), `license-check` (~4m) und `todo-tracker` skippen jetzt ebenfalls bei `light` — sie sind auf dev ohnehin `continue-on-error`, kosteten aber ~10 min Runner-104-Zeit pro Push, auf die niemand wartet. PR/main/dispatch/**schedule** fahren sie weiter voll (die Apps haben seit 15.07. nächtliche schedule-Läufe: rechnungsapp 03:10 dev, footballapp 04:30 main — der Ausgleich für die Diät). Smoke-validiert mit ECHTEM push-Event auf `release-v1.9.4` (Run `29428352616`: die 4 skipped, Test+Lint success).
 > **⚠️ ZWEI FALLEN dabei (beide fast passiert):** (1) Ein pauschaler `if:`-Ersetzer traf **6 statt 4 Jobs**, inkl. `test-matrix` — Tests auf dev-Pushes zu skippen wäre fatal. Immer per Job-Anker ersetzen + danach `test-matrix`/`lint-python`/`coverage` gegenprüfen. (2) **`!needs.changes.outputs.light` ist FALSCH:** Job-Outputs sind STRINGS, `!'false'` ist in GH-Expressions `false` → die Jobs wären ÜBERALL aus gewesen, auch nachts und auf main. Schreibweise ist `light != 'true'` (wie security/property-tests).
