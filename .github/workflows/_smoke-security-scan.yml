@@ -6,6 +6,8 @@ name: "🧪 Smoke — Security Scan"
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "17 5 3 * *"   # monatlicher Drift-Wächter (Smoke war Mai–Juli 2026 unbemerkt kaputt; schedule feuert vom Default-Branch = dev)
 
 permissions:
   contents: read
