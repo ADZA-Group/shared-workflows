@@ -3,6 +3,19 @@
 > **Für Claude (neue Session):** Dies ist der Wiederaufnahme-Handoff für die Unified-CI-Initiative.
 > Stand **2026-07-21**, branch `dev`. **Released: floating `@v1` = `v1.10.1` (commit `c98ad45`, ls-remote-verifiziert).**
 >
+> **📜 v1.10.2 VORBEREITET auf dev — dependency-review-Lügen-Rot (2026-07-21, wartet auf User-Release):**
+> Der Job `dependency-review` in `reusable-security-scan.yml` war auf JEDEM PR privater Repos rot
+> ("Dependency review is not supported on this repository" — braucht Dependency Graph = GHAS, das kein
+> Fleet-Repo hat; `continue-on-error` machte nur den RUN grün, der CHECK blieb rot = Lügen-Rot, das
+> rote Checks entwertet). Betroffen: recyclage-app (bewiesen, Runs 29738530616 + 29828760017) +
+> footballapp (strukturell: PR-Trigger + @v1 ohne Opt-out). NICHT betroffen: rechnungsapp (kein
+> PR-Trigger), adza-website/jarvis (kein reusable-ci), paperless/cloudflare (config-ci ohne dep-review).
+> Fix: Job-`if` um `!github.event.repository.private` ergänzt → skipped statt rot; Abdeckung bleibt via
+> Dependabot + cve-notify. ⚠️ recyclage-app pinnt reusable-ci@v1.8.9 (kennt den run-dependency-review-Input
+> NICHT — Caller-Opt-out unmöglich), wird aber trotzdem geheilt, weil interne Refs auf @v1 floaten →
+> der Fix greift dort mit dem @v1-Move. Falls je GHAS gekauft wird: private-Klausel wieder entfernen.
+> Release: `scripts/release-v1.sh <dev-sha> v1.10.2` (User; Classifier blockt v1-Move durch Agent).
+>
 > **🚦 v1.10.1 — Nightly-Gate-Fix (2026-07-21, @v1 moved, User-Freigabe via release-v1.sh):**
 > `require-staging-green` lief auch bei `schedule`/`workflow_dispatch`, obwohl `verify-staging` nur bei
 > `push` läuft → `skipped != success` riss JEDE Nightly auf main mit staging-url rot (erster Treffer:

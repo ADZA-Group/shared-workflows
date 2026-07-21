@@ -179,7 +179,7 @@ on:
         required: false
         type: boolean
         default: true
-        description: "Run GHAS dependency-review on PRs. Set false for private repos WITHOUT GitHub Advanced Security (advanced_security: null) — the action hard-errors there. Passed through to reusable-security-scan."
+        description: "Run GHAS dependency-review on PRs. Since v1.10.2 the job additionally auto-skips on PRIVATE repos (no GHAS in the fleet — the action hard-errors there), so this switch only matters for public repos. Passed through to reusable-security-scan."
       enable-ghcr-prune:
         required: false
         type: boolean

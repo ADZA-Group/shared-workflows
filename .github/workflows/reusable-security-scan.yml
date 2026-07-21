@@ -241,15 +241,19 @@ jobs:
           # is purchased to surface results in the Security tab.
           upload: false
 
-  # ── Dependency Review (PR-only) ───────────────────────────────
+  # ── Dependency Review (PR-only, public repos only) ────────────
   dependency-review:
     name: "📜 Dependency Review"
-    if: ${{ inputs.run-dependency-review && github.event_name == 'pull_request' }}
+    # dependency-review-action needs the Dependency Graph — on PRIVATE repos that
+    # requires GitHub Advanced Security ("not supported on this repository" without
+    # it). None of the fleet repos have GHAS, so the job was a red check on every
+    # PR that could structurally never turn green (Dependabot + cve-notify cover
+    # the same ground). Skip private repos entirely; if GHAS is ever purchased,
+    # drop the `!github.event.repository.private` clause.
+    if: ${{ inputs.run-dependency-review && github.event_name == 'pull_request' && !github.event.repository.private }}
     runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 10
-    # Advisory: dependency-review-action needs the Dependency Graph (GitHub Advanced
-    # Security). Private repos without GHAS get "not supported on this repository" —
-    # don't let that fail the whole security gate.
+    # Advisory on public repos too — never fail the whole security gate.
     continue-on-error: true
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
