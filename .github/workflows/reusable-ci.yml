@@ -913,9 +913,12 @@ jobs:
   require-staging-green:
     name: "🚦 Require Staging Green"
     needs: [verify-staging]
+    # Nur bei push gaten: verify-staging läuft ausschliesslich bei push (s.o.) —
+    # bei schedule/workflow_dispatch wäre das Ergebnis immer "skipped" und das
+    # Gate riss jede Nightly grundlos rot (footballapp Nightly 2026-07-21).
     if: >-
       ${{ always() && inputs.staging-url != '' && inputs.deploy-prod &&
-      github.ref == 'refs/heads/main' }}
+      github.ref == 'refs/heads/main' && github.event_name == 'push' }}
     runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 5
     steps:
