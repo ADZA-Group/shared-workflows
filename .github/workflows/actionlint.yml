@@ -1,0 +1,30 @@
+name: actionlint
+# Workflow-Dateien-Gate: fängt Schema-Fehler, verwaiste needs:-Referenzen und
+# Expression-Bugs VOR dem Schaden. Gerade HIER kritisch: ein dev-Push auf
+# reusable-*.yml triggerte bisher KEINEN einzigen Workflow — ein Strukturfehler
+# landete still auf dev und flog erst beim nächsten Release auf, dann fleet-weit.
+# Läuft NUR bei Änderungen an Workflow-Dateien, auf GitHub-Runnern (104 frei).
+# Nutzt die vorhandene Config .github/actionlint.yaml.
+on:
+  push:
+    branches: [dev]
+    paths: [".github/workflows/**"]
+  pull_request:
+    paths: [".github/workflows/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: actionlint v1.7.12
+        run: |
+          curl -sSfL https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz | tar xz actionlint
+          # -shellcheck=/-pyflakes= leer: Gate prueft Workflow-STRUKTUR (Schema,
+          # verwaiste needs:, Expressions) — Shell-Stil-Kosmetik ist kein
+          # Gate-Thema und haengt sonst am zufaellig vorinstallierten shellcheck.
+          ./actionlint -color -shellcheck= -pyflakes=
