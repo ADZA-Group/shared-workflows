@@ -8,6 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read          # security/codeql nested job claims actions:read (codeql-action#2117); caller must grant it or startup_failure
   contents: read
   packages: write
   id-token: write
