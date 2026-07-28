@@ -370,7 +370,7 @@ jobs:
       - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1
         with:
           install-requirements: "false"
-          extra-packages: "ruff==0.*"
+          extra-packages: "ruff==0.15.20"
           cache-key-suffix: lint
       - name: Ruff
         run: |
@@ -416,7 +416,7 @@ jobs:
       - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1
         with:
           install-requirements: "false"
-          extra-packages: "radon==6.*"
+          extra-packages: "radon==6.0.1"
           cache-key-suffix: radon
       - name: Radon complexity
         run: |
@@ -445,7 +445,7 @@ jobs:
       - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1
         with:
           install-requirements: "false"
-          extra-packages: "vulture==2.*"
+          extra-packages: "vulture==2.16"
           cache-key-suffix: vulture
       - name: Vulture scan
         run: |
@@ -508,7 +508,7 @@ jobs:
       - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1
         with:
           install-requirements: "true"
-          extra-packages: "pip-licenses==4.*"
+          extra-packages: "pip-licenses==4.5.1"
           cache-key-suffix: licenses
       - name: Check for copyleft
         run: |
@@ -698,7 +698,7 @@ jobs:
       - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1
         with:
           install-requirements: "true"
-          extra-packages: "hypothesis==6.*"
+          extra-packages: "hypothesis==6.163.0"
           cache-key-suffix: hypothesis
       - name: Run Hypothesis tests
         run: |
