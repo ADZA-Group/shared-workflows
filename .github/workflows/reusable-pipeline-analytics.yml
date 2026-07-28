@@ -1,7 +1,8 @@
 # ═══════════════════════════════════════════════════════════════
 # Reusable Pipeline Analytics — ADZA-Group
 #
-# Weekly report: success rate, duration trends, flaky tests.
+# Weekly report: success-rate (+ trend vs the prior window) + a flaky-test radar
+# that aggregates the flake-report artifacts emitted by reusable-ci's test-results.
 # Usage:
 #   uses: ADZA-Group/shared-workflows/.github/workflows/reusable-pipeline-analytics.yml@v1
 #   with:
@@ -60,7 +61,8 @@ jobs:
           DATA=$(gh api "repos/${REPO}/actions/workflows/${RUNS}/runs?created=>${SINCE}&per_page=100" \
             --jq '.workflow_runs')
 
-          TOTAL=$(echo "$DATA" | jq 'length')
+          # completed runs only — in-progress runs (conclusion=null) must not dilute the rate
+          TOTAL=$(echo "$DATA" | jq '[.[] | select(.conclusion != null)] | length')
           SUCCESS=$(echo "$DATA" | jq '[.[] | select(.conclusion=="success")] | length')
           FAILURE=$(echo "$DATA" | jq '[.[] | select(.conclusion=="failure")] | length')
           CANCELLED=$(echo "$DATA" | jq '[.[] | select(.conclusion=="cancelled")] | length')
@@ -97,3 +99,87 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "⚠️ Success rate below 80% — investigate failing jobs" >> $GITHUB_STEP_SUMMARY
           fi
+
+      # Flake radar (makes the long-dead "flaky tests" promise real) + success-rate
+      # trend vs the prior window. Aggregates flake-report artifacts (emitted by
+      # reusable-ci's test-results job) across recent runs. Report-only; a metadata
+      # check gates each download so we never blindly pull many artifacts.
+      - name: Flake radar + success-rate trend
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          WORKFLOW_NAME: ${{ inputs.workflow-name }}
+          DAYS: ${{ inputs.days }}
+        run: |
+          python3 - <<'PY'
+          import collections, datetime, json, os, shutil, subprocess, tempfile
+
+          def gh_json(path, *args):
+              out = subprocess.check_output(["gh", "api", path, *args], text=True, encoding="utf-8")
+              return json.loads(out)
+
+          repo = os.environ["REPO"]
+          wf_name = os.environ["WORKFLOW_NAME"]
+          days = int(os.environ["DAYS"])
+          max_runs = 30
+          now = datetime.datetime.now(datetime.timezone.utc)
+          out = []
+
+          wfs = gh_json(f"repos/{repo}/actions/workflows")
+          wid = next((w["id"] for w in wfs["workflows"] if w["name"] == wf_name), None)
+          if not wid:
+              out.append(f"_flake radar: no workflow named '{wf_name}'_")
+          else:
+              since = (now - datetime.timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+              runs = gh_json(f"repos/{repo}/actions/workflows/{wid}/runs?created=>{since}&per_page=100").get("workflow_runs", [])
+              flaky_runs = collections.Counter()
+              flaky_reruns = collections.Counter()
+              with_data = 0
+              for r in runs[:max_runs]:
+                  arts = gh_json(f"repos/{repo}/actions/runs/{r['id']}/artifacts?per_page=100").get("artifacts", [])
+                  if not any(a["name"] == "flake-report" and not a["expired"] for a in arts):
+                      continue
+                  dd = tempfile.mkdtemp()
+                  try:
+                      subprocess.run(["gh", "run", "download", str(r["id"]), "-n", "flake-report", "-D", dd, "-R", repo], check=True, capture_output=True)
+                      with open(os.path.join(dd, "flake-report.json"), encoding="utf-8") as fh:
+                          data = json.load(fh)
+                  except Exception as e:
+                      print(f"::warning::flake radar skip run {r['id']}: {e}")
+                      continue
+                  finally:
+                      shutil.rmtree(dd, ignore_errors=True)
+                  with_data += 1  # only after a successful download + parse
+                  for f in data.get("flaky", []):
+                      flaky_runs[f["nodeid"]] += 1
+                      flaky_reruns[f["nodeid"]] += int(f.get("reruns", 0))
+              out.append(f"### 🎲 Flaky tests ({days}d · {with_data} run(s) with data)")
+              out.append("")
+              if not flaky_runs:
+                  out.append("✅ No flaky tests recorded.")
+              else:
+                  out.append("| Test | Runs flaky | Total reruns |")
+                  out.append("|------|-----------:|-------------:|")
+                  for nid, c in flaky_runs.most_common(15):
+                      out.append(f"| `{nid}` | {c} | {flaky_reruns[nid]} |")
+
+              def srate(rs):
+                  rs = [r for r in rs if r.get("conclusion") is not None]  # exclude in-progress
+                  n = len(rs)
+                  s = sum(1 for r in rs if r.get("conclusion") == "success")
+                  return (100 * s // n if n else 0, n)
+
+              prev_since = (now - datetime.timedelta(days=2 * days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+              prev = gh_json(f"repos/{repo}/actions/workflows/{wid}/runs?created={prev_since}..{since}&per_page=100").get("workflow_runs", [])
+              cr, cn = srate(runs)
+              pr, pn = srate(prev)
+              d = cr - pr
+              arrow = "▲" if d > 0 else "▼" if d < 0 else "▬"
+              out.append("")
+              out.append("### 📈 Success-rate trend")
+              out.append(f"- This {days}d: **{cr}%** (n={cn}) · prev {days}d: {pr}% (n={pn}) · {arrow} {d:+d}pp")
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as s:
+              s.write("\n".join(out) + "\n")
+          PY
