@@ -625,7 +625,7 @@ jobs:
           install-system-deps: ${{ inputs.install-system-deps }}
           install-coverage: "true"
           cache-key-suffix: test-${{ matrix.shard.name }}
-      - uses: adza-group/shared-workflows/.github/actions/run-pytest-shard@dev   # SMOKE TEMP: revert to @v1
+      - uses: adza-group/shared-workflows/.github/actions/run-pytest-shard@v1
         with:
           shard-name: ${{ matrix.shard.name }}
           test-paths: ${{ matrix.shard.paths }}
