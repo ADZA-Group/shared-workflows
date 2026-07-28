@@ -15,9 +15,9 @@ import json
 import os
 import sys
 
-_reruns = {}          # nodeid -> number of rerun reports (any phase)
+_reruns = {}  # nodeid -> number of rerun reports (any phase)
 _call_passed = set()  # nodeid -> the call phase finished "passed"
-_failed = set()       # nodeid -> a real (non-rerun) failure in ANY phase
+_failed = set()  # nodeid -> a real (non-rerun) failure in ANY phase
 
 
 def pytest_runtest_logreport(report):
