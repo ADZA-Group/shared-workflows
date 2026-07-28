@@ -370,7 +370,7 @@ jobs:
       - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1
         with:
           install-requirements: "false"
-          extra-packages: "ruff==0.*"
+          extra-packages: "ruff==0.15.20"
           cache-key-suffix: lint
       - name: Ruff
         run: |
