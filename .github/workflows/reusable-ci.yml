@@ -686,6 +686,97 @@ jobs:
           junit_files: "junit/junit-*.xml"
           comment_mode: "off"
 
+      # 🎲 Flake Radar — aggregate the per-shard rerun-then-pass signals emitted by
+      # run-pytest-shard into one report + step-summary. Compares expected shards (from
+      # test-shards) to reported ones, so a missing/crashed shard cannot read as "no
+      # flakes" (lügen-grün). Observe-only, and the job is already continue-on-error →
+      # this can never change the pipeline outcome.
+      - name: Download flake reports
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        continue-on-error: true
+        with:
+          pattern: flakes-*
+          path: flakes
+          merge-multiple: true
+      - name: Flake radar (aggregate + summary)
+        continue-on-error: true
+        shell: bash
+        env:
+          TEST_SHARDS: ${{ inputs.test-shards }}
+        run: |
+          python3 - <<'PY'
+          import glob, json, os
+          # Expected shard names come from the caller's test-shards input (this job sees it).
+          # Comparing them to what actually reported prevents a crashed shard reading as green.
+          try:
+              expected = {s.get("name", "") for s in json.loads(os.environ.get("TEST_SHARDS") or "[]")}
+          except Exception:
+              expected = set()
+          expected.discard("")
+          files = sorted(glob.glob("flakes/flakes-*.json"))
+          reported = set()
+          parse_err = 0
+          agg = {}
+          for fp in files:
+              try:
+                  d = json.load(open(fp, encoding="utf-8"))
+                  if not isinstance(d, dict):
+                      raise ValueError("not a json object")
+              except Exception:
+                  parse_err += 1
+                  continue
+              name = d.get("shard", "") or os.path.basename(fp)[len("flakes-"):-len(".json")]
+              reported.add(name)
+              for f in d.get("flaky", []):
+                  k = (f.get("nodeid", ""), f.get("shard", ""))
+                  agg[k] = agg.get(k, 0) + int(f.get("reruns", 0))
+          missing = sorted(expected - reported) if expected else []
+          report = {
+              "shards_expected": sorted(expected),
+              "shards_reported": sorted(reported),
+              "shards_missing": missing,
+              "parse_errors": parse_err,
+              "flaky_count": len(agg),
+              "total_reruns": sum(agg.values()),
+              "flaky": [{"nodeid": k[0], "shard": k[1], "reruns": v}
+                        for k, v in sorted(agg.items(), key=lambda x: -x[1])],
+          }
+          with open("flake-report.json", "w", encoding="utf-8") as f:
+              json.dump(report, f, indent=2)
+          n_rep = len(reported)
+          n_exp = len(expected) if expected else n_rep
+          lines = ["## 🎲 Flake Radar", ""]
+          if not files:
+              lines.append("_No flake data emitted by shards this run._")
+          else:
+              note = f"  ⚠️ {parse_err} unreadable" if parse_err else ""
+              lines.append(f"- Shards analyzed: **{n_rep}/{n_exp}**{note}")
+              if missing:
+                  ms = ", ".join("`" + m + "`" for m in missing)
+                  lines.append(f"- ⚠️ **Missing shard reports:** {ms} — result below is partial")
+              if not agg:
+                  if missing:
+                      lines.append(f"- **No flakes in {n_rep}/{n_exp} analyzed shards** (rest missing — not a clean bill)")
+                  else:
+                      lines.append("- ✅ **No flaky tests this run**")
+              else:
+                  lines.append(f"- 🎲 **{len(agg)} flaky test(s)** — passed only after a rerun:")
+                  lines += ["", "| Test | Shard | Reruns |", "|------|-------|--------|"]
+                  for k, v in sorted(agg.items(), key=lambda x: -x[1]):
+                      lines.append(f"| `{k[0]}` | {k[1]} | {v} |")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as s:
+              s.write("\n".join(lines) + "\n")
+          PY
+      - name: Upload flake report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        continue-on-error: true
+        with:
+          name: flake-report
+          path: flake-report.json
+          retention-days: 90
+          if-no-files-found: ignore
+
   property-tests:
     name: "🔬 Property Tests"
     needs: changes
