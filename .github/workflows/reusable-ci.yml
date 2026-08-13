@@ -397,6 +397,83 @@ jobs:
             echo "any_code=$ANY"; echo "risky=$RISKY"; echo "light=$LIGHT"
           } >> "$GITHUB_OUTPUT"
 
+      # 🔬 TIA-observe (Lane C, OBSERVE-ONLY — deselektiert NICHTS): berechnet, welche
+      # Tests eine naming-convention-Heuristik für diesen Push GEWÄHLT HÄTTE. Der
+      # test-results-Job prüft dann gegen die echten roten Tests, ob die Auswahl sie
+      # enthalten hätte (False-Negative-Messung). Erst wenn Wochen an Daten die
+      # Trefferquote belegen, wird echtes Deselektieren überhaupt erwogen (Codex-
+      # Review: Coverage-Map-TIA ist für diese Fleet-Größe zu viel Infrastruktur;
+      # "CI auf max" und Tests-weglassen ziehen in entgegengesetzte Richtungen).
+      - name: TIA observe (would-have-selected, never deselects)
+        continue-on-error: true
+        env:
+          EV: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          BEFORE: ${{ github.event.before }}
+          RISKY: ${{ steps.norm.outputs.risky }}
+        run: |
+          python3 - <<'PY'
+          import fnmatch, glob, json, os, subprocess
+          ev, ref = os.environ.get("EV"), os.environ.get("REF", "")
+          before, risky = os.environ.get("BEFORE", ""), os.environ.get("RISKY") == "true"
+          res = {"mode": "n/a", "reason": "", "changed": [], "selected_tests": [], "unmapped": []}
+          def done():
+              with open("tia-observe.json", "w", encoding="utf-8") as f:
+                  json.dump(res, f, indent=2)
+              line = f"TIA-observe: mode={res['mode']}" + (f" ({res['reason']})" if res["reason"] else "")
+              if res["mode"] == "selected":
+                  line += f" — {len(res['selected_tests'])} Testdatei(en) für {len(res['changed'])} geänderte Datei(en)"
+              print(line)
+              with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as s:
+                  s.write(f"\n### 🔬 TIA-observe\n{line}\n")
+              raise SystemExit(0)
+          if ev != "push" or ref == "refs/heads/main" or ref.startswith("refs/tags/"):
+              res["reason"] = f"event={ev} ref={ref} — TIA gälte nur für dev-Pushes"; done()
+          if risky:
+              res["mode"], res["reason"] = "full", "risky-Pfad ⇒ immer volle Matrix"; done()
+          zero = "0" * 40
+          def git(*a):
+              return subprocess.run(["git", *a], capture_output=True, text=True)
+          if not before or before == zero or git("cat-file", "-e", before).returncode != 0 \
+             or git("merge-base", "--is-ancestor", before, "HEAD").returncode != 0:
+              res["mode"], res["reason"] = "full", "kein sauberer before..sha-Bereich (force-push/neuer Branch)"; done()
+          changed = [l for l in git("diff", "--name-only", f"{before}..HEAD").stdout.splitlines() if l]
+          res["changed"] = changed
+          structural = ("requirements", "conftest", "pytest.ini", ".coveragerc", "Dockerfile",
+                        "docker-compose", ".github/", "migrations/")
+          selected, unmapped = set(), []
+          for f in changed:
+              base = os.path.basename(f)
+              if any(s in f for s in structural):
+                  res["mode"], res["reason"] = "full", f"strukturelle Änderung: {f}"; done()
+              if fnmatch.fnmatch(base, "test_*.py") or fnmatch.fnmatch(base, "*_test.py"):
+                  selected.add(f); continue
+              if f.endswith(".py"):
+                  stem = base[:-3]
+                  hits = glob.glob(f"tests/**/test_{stem}*.py", recursive=True) + glob.glob(f"tests/test_{stem}*.py")
+                  hits = [h.replace(os.sep, "/") for h in hits]  # nodeids sind immer forward-slash
+                  if hits:
+                      selected.update(hits)
+                  else:
+                      unmapped.append(f)
+              else:
+                  unmapped.append(f)  # Templates/SQL/Config — keine Python-Kante (Codex C)
+          if unmapped:
+              res["mode"], res["reason"], res["unmapped"] = "full", f"{len(unmapped)} Datei(en) ohne Test-Mapping", unmapped
+              res["selected_tests"] = sorted(selected); done()
+          res["mode"], res["selected_tests"] = "selected", sorted(selected)
+          done()
+          PY
+      - name: Upload TIA observe
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        continue-on-error: true
+        with:
+          name: tia-observe
+          path: tia-observe.json
+          retention-days: 30
+          if-no-files-found: ignore
+
   branch-policy:
     name: "🛡️ Branch Policy"
     if: ${{ inputs.enforce-branch-policy && github.ref == 'refs/heads/main' && github.event_name == 'push' }}
@@ -846,6 +923,51 @@ jobs:
           path: flake-report.json
           retention-days: 90
           if-no-files-found: ignore
+
+      # 🔬 TIA-observe VERDICT: hätte die (nie aktive) Test-Auswahl die tatsächlich
+      # roten Tests enthalten? Misst die False-Negative-Rate der Heuristik über
+      # echte Läufe, BEVOR je ein Test deselektiert wird. Rote Tests kommen exakt
+      # (nodeids) aus den flakes-Artefakten des Radar-Plugins.
+      - name: Download TIA observe
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        continue-on-error: true
+        with:
+          name: tia-observe
+          path: tia
+      - name: TIA observe verdict
+        continue-on-error: true
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import glob, json, os
+          try:
+              tia = json.load(open("tia/tia-observe.json", encoding="utf-8"))
+          except Exception:
+              raise SystemExit(0)  # kein Observe-Datensatz (dispatch/main/…) — nichts zu prüfen
+          failed = set()
+          for fp in glob.glob("flakes/flakes-*.json"):
+              try:
+                  d = json.load(open(fp, encoding="utf-8"))
+                  failed.update(d.get("failed", []) if isinstance(d, dict) else [])
+              except Exception:
+                  pass
+          lines = []
+          if tia.get("mode") != "selected":
+              lines.append(f"Verdict: n/a — Heuristik wäre '{tia.get('mode')}' gelaufen ({tia.get('reason','')})")
+          elif not failed:
+              lines.append(f"Verdict: keine roten Tests — Auswahl-Genauigkeit diese Runde nicht messbar (hätte {len(tia.get('selected_tests', []))} Testdatei(en) gewählt)")
+          else:
+              sel = set(tia.get("selected_tests", []))
+              missed = sorted({n.split("::")[0] for n in failed} - sel)
+              if missed:
+                  ms = ", ".join(f"`{m}`" for m in missed)
+                  lines.append(f"Verdict: ❌ Heuristik hätte rote Testdatei(en) VERPASST: {ms} — Aktivierung wäre falsch gewesen (genau dafür ist observe-only da)")
+              else:
+                  lines.append(f"Verdict: ✅ Auswahl hätte alle {len(failed)} roten Tests enthalten")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as s:
+              s.write("\n".join(lines) + "\n")
+          print("\n".join(lines))
+          PY
 
   property-tests:
     name: "🔬 Property Tests"

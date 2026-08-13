@@ -53,6 +53,9 @@ def pytest_sessionfinish(session, exitstatus):
             "flaky": flaky,
             "flaky_count": len(flaky),
             "total_reruns": sum(_reruns.values()),
+            # TIA-observe cross-check: exact failed nodeids let test-results verify
+            # whether the would-have-selected test set contains every red test.
+            "failed": sorted(_failed),
         }
         with open(out, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2)
