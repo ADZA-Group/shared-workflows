@@ -18,7 +18,7 @@ The goal: every app's `.github/workflows/build.yml` is a ~25-line caller of
 | `reusable-load-test.yml` | k6 with enforced p95 + error-rate budgets (advisory/blocking toggle) |
 | `reusable-notify.yml` | Discord / Slack / Telegram alerts |
 | `reusable-monitoring-dashboard.yml` | scheduled app + pipeline health dashboard |
-| `reusable-pipeline-analytics.yml` | scheduled CI success-rate / duration analytics |
+| `reusable-pipeline-analytics.yml` | scheduled analytics: success-rate + trend vs prior window + **flake radar** (aggregates the `flake-report` artifacts emitted by `reusable-ci`) |
 | `reusable-weekly-cleanup.yml` | scheduled run/artifact retention cleanup |
 | `reusable-config-ci.yml` | infra/config-only repos (compose only): yamllint + `docker compose config` + gitleaks + OPA/conftest on the compose; dual-gate, runner-label-driven |
 | `reusable-frontend.yml` | node lane: eslint + tsc + vitest + vite build + bundle-size gate + Lighthouse CI + **pa11y-ci accessibility gate** (dual-gate) |
@@ -200,11 +200,15 @@ the job is **skipped**. Dual-gate.
 adopt: emit one (`flask-smorest`/`apispec` or a static `openapi.yaml`) and set
 `openapi-spec: "http://localhost:<port>/openapi.json"` + `api-boot-command` on the caller.
 
-## Caveats / known gaps (in progress)
+## Caveats / known gaps
 
 - **Multi-arch:** arm64 layers are not separately Trivy-scanned (amd64 is the gated representative). Decide per-arch scanning before relying on `multi-arch: true` for security gating.
-- **Self-hosted matrix + service containers:** the 4 org runners share one host/Docker daemon; concurrent test shards map the same host ports (5432/6379) and can collide. Validate multi-shard runs before relying on high shard counts (single-shard is safe).
-- **Deploy tail** (deploy-staging / verify-staging / require-staging-green / verify-prod + rollback), the **frontend lane**, **DAST**, **mutation testing**, and **release automation** are planned phases, not yet in the core orchestrator.
+- **`reusable-load-test`** is built but needs a live staging target — not runtime-validated.
+- ~~Self-hosted port collisions~~ solved: test jobs use GHA-assigned dynamic service ports and rewrite `localhost:5432/6379` in `test-env` transparently.
+- ~~Deploy tail / frontend / DAST / mutation / release "planned"~~ — all wired in the orchestrator:
+  deploy tail (verify-staging → require-staging-green → promote → verify-prod + auto-rollback + incident issue),
+  frontend lane (`has-frontend`), DAST (`enable-dast`, needs `staging-url`), mutation (opt-in, advisory),
+  release automation (`reusable-release.yml` on tag push). This section previously understated the orchestrator.
 
 ### Version App-Contract (C2, opt-in)
 Damit `verify-staging`/`verify-prod` prüfen, dass das NEUE Image läuft (nicht nur HTTP 200), muss die App
