@@ -789,6 +789,11 @@ jobs:
       - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1
         with:
           install-requirements: "true"
+          # install-coverage liefert pytest (via pytest-cov) + pytest-timeout — noetig,
+          # weil ein Caller-Repo OHNE requirements.txt (z.B. der Smoke) sonst gar kein
+          # pytest im venv hat (rc=127, Job war chronisch rot) und --timeout unten das
+          # timeout-Plugin braucht. Identisches Paket-Set wie der test-matrix-Job.
+          install-coverage: "true"
           extra-packages: "hypothesis==6.163.0"
           cache-key-suffix: hypothesis
       - name: Run Hypothesis tests
