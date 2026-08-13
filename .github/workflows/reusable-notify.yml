@@ -54,9 +54,44 @@ jobs:
     name: "🚨 Alert"
     runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 5
-    permissions: {}            # webhooks only — no GITHUB_TOKEN use
+    permissions:
+      actions: read            # Transition-Detektor liest die Run-Historie; Webhooks brauchen weiterhin kein Token
     steps:
+      # Notify-Intelligenz: nur ZUSTANDS-ÜBERGÄNGE melden. Dauer-Rot spammt nicht
+      # (Alarm kam beim grün→rot-Übergang), Dauer-Grün ist still, rot→grün gibt
+      # eine Recovery-Meldung. Vergleich: letzter ABGESCHLOSSENER Lauf desselben
+      # Workflows auf gleichem Branch UND event_name (push vergleicht mit push,
+      # schedule mit schedule), nur ältere run_numbers, nur success/failure als
+      # Vergleichswert (cancelled/skipped/neutral sind keine Transition).
+      # API-Fehler ⇒ fail-open Richtung Alarm (lieber doppelt als nie).
+      - name: Transition check (state changes only)
+        id: trans
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CUR: ${{ inputs.status }}
+          EV: ${{ github.event_name }}
+          BR: ${{ inputs.branch || github.ref_name }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_NUMBER: ${{ github.run_number }}
+          REPO: ${{ github.repository }}
+        run: |
+          send=false; kind=none; prev=unknown
+          if [ "$CUR" = "failure" ] || [ "$CUR" = "success" ]; then
+            WF_ID=$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq .workflow_id 2>/dev/null || echo "")
+            if [ -n "$WF_ID" ]; then
+              prev=$(gh api "repos/$REPO/actions/workflows/$WF_ID/runs?branch=$BR&event=$EV&status=completed&per_page=50" \
+                --jq "[.workflow_runs[] | select(.run_number < $RUN_NUMBER) | select(.conclusion==\"success\" or .conclusion==\"failure\")] | sort_by(-.run_number) | (.[0].conclusion // \"none\")" 2>/dev/null || echo unknown)
+            fi
+            case "$CUR:$prev" in
+              failure:success|failure:none|failure:unknown) send=true; kind=alarm ;;
+              success:failure)                              send=true; kind=recovery ;;
+            esac
+          fi
+          echo "prev=$prev cur=$CUR -> send=$send kind=$kind"
+          { echo "send=$send"; echo "kind=$kind"; } >> "$GITHUB_OUTPUT"
+
       - name: Build alert context
+        if: steps.trans.outputs.send == 'true'
         id: ctx
         # SECURITY: untrusted context (ref_name/actor können Shell-Metazeichen
         # enthalten — git-Refs erlauben $ ( ) ` ' " ; | &) NIE per ${{ }} direkt
@@ -68,6 +103,8 @@ jobs:
           IN_ACTOR: ${{ github.actor }}
           IN_STATUS: ${{ inputs.status }}
           IN_APP: ${{ inputs.app-name }}
+          IN_KIND: ${{ steps.trans.outputs.kind }}
+          IN_REF: ${{ github.ref }}
         run: |
           BRANCH="$IN_BRANCH"
           SHA="$IN_SHA"
@@ -77,12 +114,18 @@ jobs:
           STATUS="$IN_STATUS"
           APP="$IN_APP"
 
-          if [ "$STATUS" = "failure" ]; then
-            ICON="🔴"
-            COLOR="15158332"
-          else
-            ICON="🟢"
+          # Severity: main/tags = Produktionspfad → [PROD] im Titel (alle Kanäle,
+          # kein Kanal-Routing — Ponytail). Recovery überschreibt Text + Farbe.
+          SEV=""
+          case "$BRANCH" in main) SEV=" [PROD]";; esac
+          case "$IN_REF" in refs/tags/*) SEV=" [PROD]";; esac
+          if [ "$IN_KIND" = "recovery" ]; then
+            ICON="🟢${SEV}"
             COLOR="3066993"
+            STATUS="RECOVERED — wieder grün (war rot)"
+          else
+            ICON="🔴${SEV}"
+            COLOR="15158332"
           fi
 
           echo "branch=$BRANCH" >> $GITHUB_OUTPUT
@@ -95,7 +138,7 @@ jobs:
           echo "status=$STATUS" >> $GITHUB_OUTPUT
 
       - name: "Discord"
-        if: env.DISCORD_WEBHOOK != ''
+        if: steps.trans.outputs.send == 'true' && env.DISCORD_WEBHOOK != ''
         continue-on-error: true
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
@@ -120,7 +163,7 @@ jobs:
             }'
 
       - name: "Slack"
-        if: env.SLACK_WEBHOOK != ''
+        if: steps.trans.outputs.send == 'true' && env.SLACK_WEBHOOK != ''
         continue-on-error: true
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
@@ -142,7 +185,7 @@ jobs:
             }'
 
       - name: "Telegram"
-        if: env.BOT_TOKEN != ''
+        if: steps.trans.outputs.send == 'true' && env.BOT_TOKEN != ''
         continue-on-error: true
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}

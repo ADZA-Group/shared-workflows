@@ -49,6 +49,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:               # ⚠️ REQUIRED — see note below
   contents: read
+  actions: read         # CodeQL on private repos + notify transition detection (run history)
   packages: write
   id-token: write
   attestations: write

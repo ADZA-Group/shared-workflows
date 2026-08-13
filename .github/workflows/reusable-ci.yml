@@ -1336,22 +1336,22 @@ jobs:
 
   notify:
     name: "🚨 Notify"
-    needs: [lint-python, security, test-matrix, coverage, docker-build, verify-staging, telemetry]
-    if: >-
-      ${{ always() && (
-        needs.lint-python.result == 'failure' ||
-        needs.security.result == 'failure' ||
-        needs.test-matrix.result == 'failure' ||
-        needs.coverage.result == 'failure' ||
-        needs.docker-build.result == 'failure' ||
-        needs.verify-staging.result == 'failure'
-      ) }}
+    # Notify-Intelligenz (Lane B): läuft IMMER, meldet aber nur ZUSTANDS-ÜBERGÄNGE
+    # (grün→rot Alarm, rot→grün Recovery; Dauer-Rot/Dauer-Grün still). Der
+    # Orchestrator berechnet hier den EINEN Pipeline-Status aus ALLEN blockierenden
+    # Jobs (Codex-Review: vorher fehlten branch-policy/verify-prod/promote — ein
+    # rotes Prod-Verify wäre als success durchgerutscht); die Transition-Logik
+    # sitzt in reusable-notify. cancelled bleibt still (weder Alarm noch Recovery).
+    needs: [changes, branch-policy, lint-python, lint-dockerfile, security, test-matrix, coverage, property-tests, e2e, api-contract, frontend, docker-build, verify-staging, require-staging-green, promote-prod, verify-prod, dast, load-test]
+    if: ${{ always() && needs.changes.result != 'skipped' }}
     permissions:
       contents: read
-    uses: adza-group/shared-workflows/.github/workflows/reusable-notify.yml@v1
+      actions: read   # Transition-Detektor liest die Run-Historie (voriger Lauf gleicher Branch+Event)
+    # TEMP(dev): @dev statt @v1 — neue Inputs (event-name) existieren auf @v1 noch nicht.
+    uses: adza-group/shared-workflows/.github/workflows/reusable-notify.yml@dev
     with:
       app-name: ${{ inputs.app-name }}
-      status: failure
+      status: ${{ contains(needs.*.result, 'failure') && 'failure' || (contains(needs.*.result, 'cancelled') && 'cancelled' || 'success') }}
       branch: ${{ github.ref_name }}
       sha: ${{ github.sha }}
       run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
