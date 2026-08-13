@@ -25,6 +25,11 @@ on:
         required: false
         type: string
         default: '["self-hosted", "linux", "proxmox"]'
+      force-blocking:
+        required: false
+        type: boolean
+        default: false
+        description: "Risk-adaptives Gating: dual-gated Steps (bandit) werden BLOCKING unabhängig vom Branch. Immer-advisory-Steps (semgrep/pip-audit/…) bleiben advisory — deren Advisory-Status ist eine bewusste Entscheidung (Semgrep-Rauschen blockte main, v1.3.x)."
       run-gitleaks:
         required: false
         type: boolean
@@ -104,7 +109,8 @@ jobs:
           extra-packages: "bandit[toml]==1.*"
           cache-key-suffix: bandit
       - name: Bandit scan
-        continue-on-error: ${{ !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
+        # dual-gate + Risk-Gating: advisory auf PR/dev — AUSSER force-blocking (risky-Pfad) oder main/tags
+        continue-on-error: ${{ !inputs.force-blocking && !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
         env:
           BANDIT_EXCLUDE: ${{ inputs.bandit-exclude }}
         run: |

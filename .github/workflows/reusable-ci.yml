@@ -141,6 +141,11 @@ on:
         type: boolean
         default: false
         description: "true = Security-Suite + Property-Tests auch auf dev-/Feature-Pushes (Verhalten vor v1.9.0). Default false: dort skippen — PR, main-Push, dispatch und schedule laufen immer voll (CI-Diät, Runner-104-Entlastung)"
+      risky-paths:
+        required: false
+        type: string
+        default: "[]"
+        description: "Risk-adaptives Gating: JSON-Array zusätzlicher Globs, die IMMER mit den eingebauten Defaults (auth/security/permissions/migrations/models/payment/billing/price/delete/purge, Dockerfile, docker-compose*) UNIONiert werden — nie ersetzen. Berührt ein Push einen riskanten Pfad, läuft auch auf dev die volle CI (light aus) und property-tests/hadolint/bandit werden BLOCKING."
       enable-load-test:
         required: false
         type: boolean
@@ -291,22 +296,20 @@ jobs:
       contents: read
       pull-requests: read   # dorny/paths-filter queries the API; without this → "Resource not accessible by integration"
     outputs:
-      # Promote-Override (v1.7.1): jeder main-PUSH validiert VOLL. Ein policy-konformer
-      # dev→main-Merge hat oft einen LEEREN dev...main-Diff (merge-base = dev-HEAD) →
-      # Filter melden false → test/security kaskaden-skippen → docker-build (fail-closed
-      # auf security=='success') skippt → require-staging-green liest verify-staging=skipped
-      # und blockt den Promote. Incident: Rechnungsapp Run 27258300405 (2026-06-10).
-      # Path-Filter bleiben reine Optimierung für dev-/PR-Iteration.
-      python: ${{ steps.filter.outputs.python == 'true' || (github.ref == 'refs/heads/main' && github.event_name == 'push') }}
-      docker: ${{ steps.filter.outputs.docker == 'true' || (github.ref == 'refs/heads/main' && github.event_name == 'push') }}
-      frontend: ${{ steps.filter.outputs.frontend == 'true' || (github.ref == 'refs/heads/main' && github.event_name == 'push') }}
-      ci: ${{ steps.filter.outputs.ci == 'true' || (github.ref == 'refs/heads/main' && github.event_name == 'push') }}
-      any_code: ${{ steps.filter.outputs.python == 'true' || steps.filter.outputs.docker == 'true' || steps.filter.outputs.frontend == 'true' || (github.ref == 'refs/heads/main' && github.event_name == 'push') }}
-      # CI-Diät (v1.9.0): dev-/Feature-PUSHES laufen light — Security-Suite + Property-Tests
-      # skippen dort (PR, main-Push, dispatch, schedule validieren immer voll). docker-build
-      # akzeptiert security=skipped NUR bei light=='true' → Gate bleibt fail-closed.
-      # Opt-out pro App: full-ci-on-dev-push: true.
-      light: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') && !inputs.full-ci-on-dev-push }}
+      # Alle Outputs kommen aus dem NORMALISIERUNGS-Step (norm) — Single Source:
+      # - Promote-Override (v1.7.1): jeder main-PUSH validiert VOLL (leerer dev...main-
+      #   Diff → Kaskaden-Skip → Promote-Block; Incident Rechnungsapp Run 27258300405).
+      # - CI-Diät (v1.9.0): dev-Pushes light — ABER risky-Pfade übersteuern light.
+      # - Fail-closed (Risk-Gating): schlägt der paths-filter selbst fehl, werden ALLE
+      #   Kategorien + risky auf true gesetzt statt den Job (und damit via needs die
+      #   ganze Pipeline) zu kaskaden-skippen. Ein Filterfehler erzeugt MEHR CI, nie weniger.
+      python: ${{ steps.norm.outputs.python }}
+      docker: ${{ steps.norm.outputs.docker }}
+      frontend: ${{ steps.norm.outputs.frontend }}
+      ci: ${{ steps.norm.outputs.ci }}
+      any_code: ${{ steps.norm.outputs.any_code }}
+      risky: ${{ steps.norm.outputs.risky }}
+      light: ${{ steps.norm.outputs.light }}
       start_time: ${{ steps.t.outputs.epoch }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
@@ -314,25 +317,85 @@ jobs:
           fetch-depth: 0   # paths-filter diffs locally via git (avoids restricted compare API → "Resource not accessible")
       - id: t
         run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
+      - name: Compose filters (validated — no raw YAML injection from caller input)
+        id: rf
+        env:
+          RISKY_EXTRA: ${{ inputs.risky-paths }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          # Caller-Globs werden validiert (nur schlichte Glob-Strings) und mit den
+          # Defaults UNIONiert — ein kaputter Input degradiert zu Defaults + Warnung,
+          # er kann den Filter nie strukturell zerstoeren (Codex-Review Lane A).
+          base = {
+              "python": ["**/*.py", "requirements*.txt", "pytest.ini", ".coveragerc"],
+              "docker": ["Dockerfile", "docker-compose*.yml"],
+              "frontend": ["frontend/**", "templates/**", "static/**", "translations/**"],
+              "ci": [".github/**"],
+              "risky": [
+                  "**/auth*", "**/security*", "**/permissions*",
+                  "**/migrations/**", "**/models*",
+                  "**/payment*", "**/billing*", "**/price*",
+                  "**/*delete*", "**/*purge*",
+                  "Dockerfile", "docker-compose*",
+              ],
+          }
+          try:
+              extra = json.loads(os.environ.get("RISKY_EXTRA") or "[]")
+              if not isinstance(extra, list):
+                  raise ValueError("not a list")
+          except Exception as e:
+              print(f"::warning::risky-paths ist kein JSON-Array ({e}) — Defaults gelten trotzdem")
+              extra = []
+          for g in extra:
+              if isinstance(g, str) and g and not re.search(r"[\n'\"]", g):
+                  base["risky"].append(g)
+              else:
+                  print(f"::warning::risky-paths-Eintrag ignoriert (kein schlichter Glob): {g!r}")
+          lines = []
+          for key, globs in base.items():
+              lines.append(f"{key}:")
+              lines.extend(f"  - '{g}'" for g in globs)
+          out = "\n".join(lines) + "\n"
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write("filters<<FILTERS_EOF\n" + out + "FILTERS_EOF\n")
+          PY
       - id: filter
+        # continue-on-error: der norm-Step unten behandelt einen Filter-Fehler
+        # fail-closed (alles true). Ohne das wuerde der changes-Job failen und
+        # ALLE Downstream-Jobs kaskaden-skippen — das Gegenteil von Haerte.
+        continue-on-error: true
         uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706  # v4.0.2
         with:
-          filters: |
-            python:
-              - '**/*.py'
-              - 'requirements*.txt'
-              - 'pytest.ini'
-              - '.coveragerc'
-            docker:
-              - 'Dockerfile'
-              - 'docker-compose*.yml'
-            frontend:
-              - 'frontend/**'
-              - 'templates/**'
-              - 'static/**'
-              - 'translations/**'
-            ci:
-              - '.github/**'
+          filters: ${{ steps.rf.outputs.filters }}
+      - name: Normalize outputs (fail-closed, risky overrides light)
+        id: norm
+        env:
+          F_OUTCOME: ${{ steps.filter.outcome }}
+          F_PY: ${{ steps.filter.outputs.python }}
+          F_DOCKER: ${{ steps.filter.outputs.docker }}
+          F_FRONT: ${{ steps.filter.outputs.frontend }}
+          F_CI: ${{ steps.filter.outputs.ci }}
+          F_RISKY: ${{ steps.filter.outputs.risky }}
+          MAIN_PUSH: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+          LIGHT_CAND: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') && !inputs.full-ci-on-dev-push }}
+        run: |
+          if [ "$F_OUTCOME" != "success" ]; then
+            echo "::warning::paths-filter fehlgeschlagen — fail-closed: alle Kategorien + risky = true (volle harte CI)"
+            PY=true; DK=true; FR=true; CI=true; RISKY=true
+          else
+            PY=$F_PY; DK=$F_DOCKER; FR=$F_FRONT; CI=$F_CI; RISKY=${F_RISKY:-false}
+          fi
+          if [ "$MAIN_PUSH" = "true" ]; then PY=true; DK=true; FR=true; CI=true; fi
+          ANY=false
+          if [ "$PY" = "true" ] || [ "$DK" = "true" ] || [ "$FR" = "true" ]; then ANY=true; fi
+          LIGHT=false
+          if [ "$LIGHT_CAND" = "true" ] && [ "$RISKY" != "true" ]; then LIGHT=true; fi
+          [ "$RISKY" = "true" ] && echo "::notice::⚠️ risky-Pfad berührt — CI-Diät aus, harte Gates aktiv (property/hadolint/bandit blocking)"
+          {
+            echo "python=$PY"; echo "docker=$DK"; echo "frontend=$FR"; echo "ci=$CI"
+            echo "any_code=$ANY"; echo "risky=$RISKY"; echo "light=$LIGHT"
+          } >> "$GITHUB_OUTPUT"
 
   branch-policy:
     name: "🛡️ Branch Policy"
@@ -383,7 +446,9 @@ jobs:
     if: ${{ needs.changes.outputs.docker == 'true' || needs.changes.outputs.ci == 'true' }}
     runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
     timeout-minutes: 5
-    continue-on-error: true   # advisory (incl. main) — hadolint findings inform, don't block the pipeline
+    # Risk-Gating: Dockerfile-Änderung auf risky-Pfad (Dockerfile IST risky-Default)
+    # ⇒ hadolint BLOCKING + gated den Build (docker-build.needs). Sonst advisory.
+    continue-on-error: ${{ needs.changes.outputs.risky != 'true' }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
       - name: Install hadolint v2.12.0
@@ -548,11 +613,16 @@ jobs:
       actions: read            # CodeQL on private repos calls GET /actions/runs/{id} → needs actions:read (github/codeql-action#2117)
       contents: read
       security-events: write   # CodeQL upload (capped by caller's grant)
-    uses: adza-group/shared-workflows/.github/workflows/reusable-security-scan.yml@v1
+    # TEMP(dev): @dev statt @v1, weil der neue force-blocking-Input auf @v1 noch
+    # nicht existiert (sonst startup_failure). Das Release-Ritual (release-v1.sh)
+    # flippt interne Refs zurück auf @v1 — beide Dateien landen im selben Tag.
+    uses: adza-group/shared-workflows/.github/workflows/reusable-security-scan.yml@dev
     with:
       python-version: ${{ inputs.python-version }}
       runner-label: ${{ inputs.cloud-runner-label }}
       run-dependency-review: ${{ inputs.run-dependency-review }}
+      # Risk-Gating: risky-Pfad ⇒ dual-gated Security-Steps (bandit) BLOCKING auch auf dev
+      force-blocking: ${{ needs.changes.outputs.risky == 'true' }}
     secrets: inherit
 
   test-matrix:
@@ -783,7 +853,10 @@ jobs:
     if: ${{ inputs.enable-property-tests && (needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true') && needs.changes.outputs.light != 'true' }}
     runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
     timeout-minutes: 15
-    continue-on-error: true
+    # Risk-Gating: bei risky-Pfaden BLOCKING, sonst advisory wie bisher (auch auf
+    # main — das bestehende main-Verhalten wird bewusst NICHT stillschweigend
+    # verschärft; ein risky dev→main-Merge-Diff härtet dagegen schon auf dev).
+    continue-on-error: ${{ needs.changes.outputs.risky != 'true' }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
       - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1
@@ -914,7 +987,7 @@ jobs:
 
   docker-build:
     name: "🐳 Build"
-    needs: [changes, lint-python, test-matrix, security, coverage, e2e, branch-policy]
+    needs: [changes, lint-python, lint-dockerfile, test-matrix, security, coverage, e2e, branch-policy]
     # HARD DEPLOY GATE (Audit 2026-07-16, P1): security + coverage gaten jetzt den
     # Build/Push. Vorher liefen sie nur PARALLEL — ein committetes Secret (gitleaks)
     # oder ein bandit-HIGH färbte den Run zwar rot, das Image ging aber trotzdem nach
@@ -925,10 +998,12 @@ jobs:
     # dieselbe Envelope teilen: any_code = python||docker||frontend schliesst docker
     # ein → security kann nie skippen, während docker-build läuft (ausser bei light).
     # coverage nutzt != 'failure' (skipped erlaubt: non-py / opt-out).
-    # lint-dockerfile + license-check bleiben advisory (gaten den Build nicht).
+    # lint-dockerfile: advisory ⇒ result=success (gated nicht); bei risky BLOCKING
+    # ⇒ echtes failure blockt den Build (Risk-Gating). license-check bleibt advisory.
     if: >-
       ${{ always() &&
       needs.lint-python.result != 'failure' &&
+      needs.lint-dockerfile.result != 'failure' &&
       (needs.security.result == 'success' ||
        (needs.security.result == 'skipped' && needs.changes.outputs.light == 'true')) &&
       needs.coverage.result != 'failure' &&
