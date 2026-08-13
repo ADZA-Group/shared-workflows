@@ -439,12 +439,19 @@ jobs:
               res["mode"], res["reason"] = "full", "kein sauberer before..sha-Bereich (force-push/neuer Branch)"; done()
           changed = [l for l in git("diff", "--name-only", f"{before}..HEAD").stdout.splitlines() if l]
           res["changed"] = changed
-          structural = ("requirements", "conftest", "pytest.ini", ".coveragerc", "Dockerfile",
-                        "docker-compose", ".github/", "migrations/")
+          # Präzise statt Substring (Codex R1): Verzeichnisse per Pfad-Anker,
+          # Dateien per basename-Prefix — docs/.github-artige Pfade zählen sonst
+          # fälschlich als strukturell (observe-only ⇒ nur Messrauschen, aber unnötig).
+          def is_structural(f, base):
+              if f.startswith(".github/") or f.startswith("migrations/") or "/migrations/" in f:
+                  return True
+              return any(base.startswith(p) for p in
+                         ("requirements", "conftest", "pytest.ini", ".coveragerc",
+                          "Dockerfile", "docker-compose"))
           selected, unmapped = set(), []
           for f in changed:
               base = os.path.basename(f)
-              if any(s in f for s in structural):
+              if is_structural(f, base):
                   res["mode"], res["reason"] = "full", f"strukturelle Änderung: {f}"; done()
               if fnmatch.fnmatch(base, "test_*.py") or fnmatch.fnmatch(base, "*_test.py"):
                   selected.add(f); continue
@@ -1464,7 +1471,9 @@ jobs:
     # Jobs (Codex-Review: vorher fehlten branch-policy/verify-prod/promote — ein
     # rotes Prod-Verify wäre als success durchgerutscht); die Transition-Logik
     # sitzt in reusable-notify. cancelled bleibt still (weder Alarm noch Recovery).
-    needs: [changes, branch-policy, lint-python, lint-dockerfile, security, test-matrix, coverage, property-tests, e2e, api-contract, frontend, docker-build, verify-staging, require-staging-green, promote-prod, verify-prod, dast, load-test]
+    # license-check ist dual-gated (blocking auf main/tags!) — ohne ihn in needs
+    # wäre ein rotes main-Lizenz-Gate als success gemeldet worden (Codex-Fund R1).
+    needs: [changes, branch-policy, lint-python, lint-dockerfile, license-check, security, test-matrix, coverage, property-tests, e2e, api-contract, frontend, docker-build, verify-staging, require-staging-green, promote-prod, verify-prod, dast, load-test]
     if: ${{ always() && needs.changes.result != 'skipped' }}
     permissions:
       contents: read
