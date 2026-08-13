@@ -9,7 +9,7 @@ on:
   # erfüllt damit das exakt-SHA-Gate von scripts/release-v1.sh. Nach dem Release
   # ist der Branch weg → Trigger feuert nie wieder. (Audit 2026-07-16)
   push:
-    branches: ["release-*", "dev"]   # SMOKE TEMP: dev drin für Risk-Gating/Notify/TIA-Validierung mit echten push-Events (dispatch-Filter sind leer) — nach der Welle wieder raus
+    branches: ["release-*"]
 
 permissions:
   actions: read          # security/codeql nested job claims actions:read (codeql-action#2117); caller must grant it or startup_failure

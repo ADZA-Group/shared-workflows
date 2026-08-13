@@ -3,6 +3,26 @@
 > **Für Claude (neue Session):** Dies ist der Wiederaufnahme-Handoff für die Unified-CI-Initiative.
 > Stand **2026-07-21**, branch `dev`. **Released: floating `@v1` = `v1.10.1` (commit `c98ad45`, ls-remote-verifiziert).**
 >
+> **🧠 2026-08-13 MAX-WELLE auf dev (Pair-Codex, wartet auf Release — ⚠️ RELEASE-PREP nötig, s.u.):**
+> Commits `76fe929..<tip>`: (1) **property-tests-Smoke-Rot GEFIXT** (Caller ohne requirements.txt → venv ohne
+> pytest → rc=127; Fix `install-coverage:"true"` = pytest via pytest-cov + pytest-timeout; bewiesen Run
+> 31710648055 rc=5-Pfad grün). (2) **Risk-Gating:** `changes` mit composed+validierten Filtern (Input
+> `risky-paths` JSON-Array, UNION mit Defaults) + norm-Step (Filterfehler ⇒ alles+risky=true = fail-closed
+> Richtung Härte, kein Kaskaden-Skip); risky ⇒ light aus + property/hadolint/bandit BLOCKING; hadolint neu in
+> docker-build.needs+if; bandit via neuem `force-blocking`-Input in reusable-security-scan. (3) **Notify-
+> Transitions:** Orchestrator berechnet Status aus 19 needs (license-check ist dual-gated = main-blocking —
+> war die Lücke), notify meldet nur grün→rot (Alarm) / rot→grün (Recovery), Dauer-Zustände still,
+> [PROD]-Präfix main/tags, API-Fehler fail-open; braucht `actions:read` (alle 4 App-Caller haben es, README-
+> Beispiel ergänzt). Live bewiesen: `prev=success cur=success → send=false`. (4) **TIA observe-only:**
+> naming-Heuristik berechnet would-have-selected (deselektiert NIE), Flake-Plugin trägt failed-nodeids,
+> test-results-Verdict „hätte Auswahl alle roten enthalten?" — False-Negative-Ledger VOR jeder Aktivierung
+> (Codex kippte Coverage-Map-TIA als zu schwer für die Fleet-Größe). (5) README-Caveats entdriftet.
+> **⚠️ RELEASE-PREP:** interne Refs security-scan + notify stehen TEMP auf `@dev` (neue Inputs existieren
+> auf @v1 noch nicht — startup_failure sonst). Vor dem Tag per Release-Ritual auf @v1 flippen (beide Dateien
+> landen im selben Tag → konsistent). Smokes: 31710648055 (risky hart), 31711921815 (light+notify+TIA),
+> 31712308434 (risky via Fixture-Löschung, erweiterte needs). **Runner-Redundanz separat LIVE:** `s2-runner`
+> auf S2/LXC 114 (cpuunits 50, Watchdog-Timer, onboot) neben `proxmox-runner` — gleicher Label-Satz.
+>
 > **📜 v1.10.2 VORBEREITET auf dev — dependency-review-Lügen-Rot (2026-07-21, wartet auf User-Release):**
 > Der Job `dependency-review` in `reusable-security-scan.yml` war auf JEDEM PR privater Repos rot
 > ("Dependency review is not supported on this repository" — braucht Dependency Graph = GHAS, das kein
