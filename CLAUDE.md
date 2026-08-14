@@ -17,13 +17,13 @@
 > naming-Heuristik berechnet would-have-selected (deselektiert NIE), Flake-Plugin trägt failed-nodeids,
 > test-results-Verdict „hätte Auswahl alle roten enthalten?" — False-Negative-Ledger VOR jeder Aktivierung
 > (Codex kippte Coverage-Map-TIA als zu schwer für die Fleet-Größe). (5) README-Caveats entdriftet.
-> **⚠️ RELEASE = ZWEI STUFEN (Flip erledigt 2026-08-14; v1.10.4 ist FREI — vergeben nur bis v1.10.3):**
-> Refs stehen auf @v1 (notify ist input-identisch = flip-sicher). Die `force-blocking`-Übergabe an
-> security-scan ist TEMP AUSKOMMENTIERT (⏳ STAGE-2-Marker im security-Job) — der Input existiert erst
-> mit dem Move. **Stufe A:** Smoke grün auf dem Flip-SHA → `release-v1.sh <shaA> v1.10.4` (ganze Welle
-> aktiv außer bandit-force-blocking). **Stufe B:** Kommentar wieder rein, Smoke, `release-v1.sh <shaB>
-> v1.10.5` → Risk-Gating komplett. Wellen-Smokes: 31710648055 (risky hart), 31711921815
-> (light+notify+TIA), 31712308434 (risky via Fixture-Löschung, erweiterte needs). **Runner-Redundanz: am 2026-08-14 auf
+> **⚠️ RELEASE = ZWEI STUFEN (User-only — Classifier blockt Agent-Moves, verifiziert 2026-08-14):**
+> **Stufe A:** `release-v1.sh f1b621e v1.10.4` — Flip-SHA, smoke-grün (31794672604), alle Gates dry-run-
+> grün. Aktiviert die ganze Welle außer bandit-force-blocking. **Stufe B (dieser Commit, NUR pushen wenn
+> @v1==f1b621e messbar!):** re-aktiviert die `force-blocking`-Übergabe → Smoke → `release-v1.sh <shaB>
+> v1.10.5` → Risk-Gating komplett. Reihenfolge ist HART: Stufe-B-SHA gegen altes @v1 = startup_failure
+> jedes Smokes. Wellen-Smokes: 31710648055 (risky hart), 31711921815 (light+notify+TIA), 31712308434
+> (risky via Fixture-Löschung). v1.10.4 ist FREI (vergeben nur bis v1.10.3). **Runner-Redundanz: am 2026-08-14 auf
 > User-Entscheid RÜCKGEBAUT** (s2-runner deregistriert, LXC 114 destroyed, Watchdog entfernt — LXC 104
 > ist wieder der einzige Runner-Host/SPOF). Setup-Wissen fürs Wiederherstellen: Windows-Memory
 > `ci-max-welle-2026-08-13` (vzdump-Klon-Gotchas bleiben gültig).

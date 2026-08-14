@@ -702,10 +702,9 @@ jobs:
       python-version: ${{ inputs.python-version }}
       runner-label: ${{ inputs.cloud-runner-label }}
       run-dependency-review: ${{ inputs.run-dependency-review }}
-      # ⏳ STAGE-2 (nach v1.10.4-Release wieder AKTIVIEREN — Henne-Ei: der Input
-      # existiert erst, wenn @v1 die neue reusable-security-scan trägt; vorher
-      # würde die Übergabe jeden Smoke mit startup_failure reißen):
-      # force-blocking: ${{ needs.changes.outputs.risky == 'true' }}
+      # Risk-Gating Stufe B (aktiv seit v1.10.5): risky-Pfad ⇒ dual-gated
+      # Security-Steps (bandit) BLOCKING auch auf dev-Pushes.
+      force-blocking: ${{ needs.changes.outputs.risky == 'true' }}
     secrets: inherit
 
   test-matrix:
