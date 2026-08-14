@@ -4,7 +4,7 @@
 # The one canonical pipeline. Apps call this with ~10 inputs.
 # CORE: changes → lint-python + security → pytest-matrix →
 #       coverage + test-results → docker-build → telemetry.
-# Composites + sub-reusables referenced by full path @dev (→ @v1 at release).
+# Composites + sub-reusables referenced by full path on floating @v1 (no drift).
 #
 # Usage (app build.yml):
 #   jobs:
@@ -697,16 +697,15 @@ jobs:
       actions: read            # CodeQL on private repos calls GET /actions/runs/{id} → needs actions:read (github/codeql-action#2117)
       contents: read
       security-events: write   # CodeQL upload (capped by caller's grant)
-    # TEMP(dev): @dev statt @v1, weil der neue force-blocking-Input auf @v1 noch
-    # nicht existiert (sonst startup_failure). Das Release-Ritual (release-v1.sh)
-    # flippt interne Refs zurück auf @v1 — beide Dateien landen im selben Tag.
-    uses: adza-group/shared-workflows/.github/workflows/reusable-security-scan.yml@dev
+    uses: adza-group/shared-workflows/.github/workflows/reusable-security-scan.yml@v1
     with:
       python-version: ${{ inputs.python-version }}
       runner-label: ${{ inputs.cloud-runner-label }}
       run-dependency-review: ${{ inputs.run-dependency-review }}
-      # Risk-Gating: risky-Pfad ⇒ dual-gated Security-Steps (bandit) BLOCKING auch auf dev
-      force-blocking: ${{ needs.changes.outputs.risky == 'true' }}
+      # ⏳ STAGE-2 (nach v1.10.4-Release wieder AKTIVIEREN — Henne-Ei: der Input
+      # existiert erst, wenn @v1 die neue reusable-security-scan trägt; vorher
+      # würde die Übergabe jeden Smoke mit startup_failure reißen):
+      # force-blocking: ${{ needs.changes.outputs.risky == 'true' }}
     secrets: inherit
 
   test-matrix:
@@ -1478,8 +1477,9 @@ jobs:
     permissions:
       contents: read
       actions: read   # Transition-Detektor liest die Run-Historie (voriger Lauf gleicher Branch+Event)
-    # TEMP(dev): @dev statt @v1 — neue Inputs (event-name) existieren auf @v1 noch nicht.
-    uses: adza-group/shared-workflows/.github/workflows/reusable-notify.yml@dev
+    # Input-Satz ist identisch mit der alten notify (@v1-flip-sicher); die neue
+    # Transition-Logik wird mit dem @v1-Move selbst aktiv.
+    uses: adza-group/shared-workflows/.github/workflows/reusable-notify.yml@v1
     with:
       app-name: ${{ inputs.app-name }}
       status: ${{ contains(needs.*.result, 'failure') && 'failure' || (contains(needs.*.result, 'cancelled') && 'cancelled' || 'success') }}
