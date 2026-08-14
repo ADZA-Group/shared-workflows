@@ -17,13 +17,16 @@
 > naming-Heuristik berechnet would-have-selected (deselektiert NIE), Flake-Plugin trägt failed-nodeids,
 > test-results-Verdict „hätte Auswahl alle roten enthalten?" — False-Negative-Ledger VOR jeder Aktivierung
 > (Codex kippte Coverage-Map-TIA als zu schwer für die Fleet-Größe). (5) README-Caveats entdriftet.
-> **⚠️ RELEASE = ZWEI STUFEN (User-only — Classifier blockt Agent-Moves, verifiziert 2026-08-14):**
-> **Stufe A:** `release-v1.sh f1b621e v1.10.4` — Flip-SHA, smoke-grün (31794672604), alle Gates dry-run-
-> grün. Aktiviert die ganze Welle außer bandit-force-blocking. **Stufe B (dieser Commit, NUR pushen wenn
-> @v1==f1b621e messbar!):** re-aktiviert die `force-blocking`-Übergabe → Smoke → `release-v1.sh <shaB>
-> v1.10.5` → Risk-Gating komplett. Reihenfolge ist HART: Stufe-B-SHA gegen altes @v1 = startup_failure
-> jedes Smokes. Wellen-Smokes: 31710648055 (risky hart), 31711921815 (light+notify+TIA), 31712308434
-> (risky via Fixture-Löschung). v1.10.4 ist FREI (vergeben nur bis v1.10.3). **Runner-Redundanz: am 2026-08-14 auf
+> **✅ RELEASED 2026-08-14 (zweistufig, ls-remote-verifiziert): `@v1` = `v1.10.5` = `30ca00d`.**
+> v1.10.4 = `f1b621e` (Flip + Welle ohne bandit-force-blocking), v1.10.5 = `30ca00d` (force-blocking
+> aktiv) — die komplette Doppelwelle (Flake-Radar 07-30 + Max-Welle 08-13) ist fleet-live.
+> Wellen-Smokes: 31710648055 (risky hart) · 31711921815 (light+notify+TIA) · 31712308434 (risky via
+> Fixture-Löschung) · 31794672604 (Stufe A) · 31802107153 (Stufe B). **Release-Lehre:** die drei
+> „gescheiterten" User-Releases starben ALLE an Gate 1 (dirty tree durch Agent-Hinterlassenschaften:
+> __pycache__ aus lokalen Plugin-Tests, dann die eigene release-out.txt-Log-Umleitung IM Repo) bzw. an
+> Bash-Syntax in PowerShell. Merke: User-Befehle als PowerShell-Zeile mit explizitem Git-Bash-Pfad,
+> Logs NIE ins Repo, vor Release-Übergabe `git status --porcelain` prüfen. Agent-Moves von @v1 blockt
+> der Classifier (verifiziert 2026-08-14) — Releases bleiben User-only, Gates im Skript sind die Sicherung. **Runner-Redundanz: am 2026-08-14 auf
 > User-Entscheid RÜCKGEBAUT** (s2-runner deregistriert, LXC 114 destroyed, Watchdog entfernt — LXC 104
 > ist wieder der einzige Runner-Host/SPOF). Setup-Wissen fürs Wiederherstellen: Windows-Memory
 > `ci-max-welle-2026-08-13` (vzdump-Klon-Gotchas bleiben gültig).
