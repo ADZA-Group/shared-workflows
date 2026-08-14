@@ -20,8 +20,10 @@
 > **⚠️ RELEASE-PREP:** interne Refs security-scan + notify stehen TEMP auf `@dev` (neue Inputs existieren
 > auf @v1 noch nicht — startup_failure sonst). Vor dem Tag per Release-Ritual auf @v1 flippen (beide Dateien
 > landen im selben Tag → konsistent). Smokes: 31710648055 (risky hart), 31711921815 (light+notify+TIA),
-> 31712308434 (risky via Fixture-Löschung, erweiterte needs). **Runner-Redundanz separat LIVE:** `s2-runner`
-> auf S2/LXC 114 (cpuunits 50, Watchdog-Timer, onboot) neben `proxmox-runner` — gleicher Label-Satz.
+> 31712308434 (risky via Fixture-Löschung, erweiterte needs). **Runner-Redundanz: am 2026-08-14 auf
+> User-Entscheid RÜCKGEBAUT** (s2-runner deregistriert, LXC 114 destroyed, Watchdog entfernt — LXC 104
+> ist wieder der einzige Runner-Host/SPOF). Setup-Wissen fürs Wiederherstellen: Windows-Memory
+> `ci-max-welle-2026-08-13` (vzdump-Klon-Gotchas bleiben gültig).
 >
 > **📜 v1.10.2 VORBEREITET auf dev — dependency-review-Lügen-Rot (2026-07-21, wartet auf User-Release):**
 > Der Job `dependency-review` in `reusable-security-scan.yml` war auf JEDEM PR privater Repos rot
