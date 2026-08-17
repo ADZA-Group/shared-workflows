@@ -86,7 +86,7 @@ jobs:
     runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
       - name: Gitleaks
@@ -102,7 +102,7 @@ jobs:
     runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1
         with:
           install-requirements: "false"
@@ -139,7 +139,7 @@ jobs:
     runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1
         with:
           install-requirements: "false"
@@ -165,7 +165,7 @@ jobs:
     runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Filesystem scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
@@ -190,7 +190,7 @@ jobs:
     runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1
         with:
           install-requirements: "false"
@@ -231,7 +231,7 @@ jobs:
       matrix:
         language: ${{ fromJSON(inputs.codeql-languages) }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: github/codeql-action/init@c35d1b164463ee62a100735382aaaa525c5d3496  # codeql-bundle-v2.25.6
         with:
           languages: ${{ matrix.language }}
@@ -262,7 +262,7 @@ jobs:
     # Advisory on public repos too — never fail the whole security gate.
     continue-on-error: true
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294  # v5.0.0
         with:
           fail-on-severity: ${{ github.base_ref == 'main' && 'high' || 'critical' }}
@@ -274,7 +274,7 @@ jobs:
     runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: adza-group/shared-workflows/.github/actions/opa-policy@v1
         with:
           blocking: 'false'
