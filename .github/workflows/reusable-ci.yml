@@ -387,6 +387,11 @@ jobs:
             PY=$F_PY; DK=$F_DOCKER; FR=$F_FRONT; CI=$F_CI; RISKY=${F_RISKY:-false}
           fi
           if [ "$MAIN_PUSH" = "true" ]; then PY=true; DK=true; FR=true; CI=true; fi
+          # Risky ⇒ volle Code-Lanes (PY/DK/FR): risky schaltete bisher nur die Diät aus
+          # und machte Gates blocking — test-matrix/docker-build blieben filtergesteuert.
+          # Ein risky-Push, der keinen Code-Filter trifft (z.B. Template-only via Caller-
+          # risky-paths), baute+deployte sonst UNGETESTET (Vorfall rechnungsapp 21.08.).
+          if [ "$RISKY" = "true" ]; then PY=true; DK=true; FR=true; fi
           ANY=false
           if [ "$PY" = "true" ] || [ "$DK" = "true" ] || [ "$FR" = "true" ]; then ANY=true; fi
           LIGHT=false
