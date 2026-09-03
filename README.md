@@ -243,3 +243,19 @@ Candidate liegt bereit; verify-prod skippt dann (kein False-Rollback). **Manuell
 **Rollback:** unverändert `:previous` → `:latest` (verify-prod macht das bei rotem Health-Check automatisch).
 **Bekannt (Follow-up vor Pilot):** `:candidate-*`-Tags akkumulieren in GHCR — `prune-ghcr` löscht nur
 untagged Versions; Candidate-Cleanup (älter als N Runs) gehört in eine Folge-Iteration.
+
+## Releasing `@v1` (autonom, Kandidaten-Branch)
+
+```bash
+scripts/release-v1.sh <sha> vX.Y.Z [--yes] [--dry-run] [--no-wait]
+```
+
+Das Skript baut in einem Wegwerf-Worktree den Kandidaten-Branch `release-vX.Y.Z` = `<sha>` + ein
+Commit, der alle internen Refs `adza-group/shared-workflows/...@v1` auf `@release-vX.Y.Z` umschreibt
+(damit testen die Smokes den Kandidaten selbst, auch in verschachtelten Aufrufen) und `.release-source`
+ablegt. `release.yml` laeuft auf dem Branch: Kandidaten-Check → Smokes (Orchestrator, Docker-Push auf
+ubuntu und self-hosted, Promotion) → atomarer Tag-Push (`vX.Y.Z` + `v1`) auf den Original-SHA → Branch-
+Cleanup. Der Tag-Push braucht das Repo-Secret `RELEASE_TOKEN` (fine-grained PAT eines Repo-Admins,
+`contents: write`), weil das Ruleset `protect-v1-tag` nur Admins bypassen laesst und GitHub weder die
+Actions-Integration noch (org-seitig deaktivierte) Deploy-Keys zulaesst. Ohne Secret bleibt der Lauf am
+Tag-Push stehen (Tags unberuehrt) und kann nach Anlage per `gh run rerun <id> --failed` fortgesetzt werden.

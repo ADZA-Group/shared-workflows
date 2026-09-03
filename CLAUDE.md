@@ -7,6 +7,29 @@
 > Fleet-Beweis: rechnungsapp Run 33750934660 (Attempt 2 grün; Attempt 1 fiel im ALTEN zweiten buildx-Push an
 > „failed to fetch anonymous token … ghcr.io/token … 403" — genau der Schritt, den die Audit-Welle unten abschafft).
 >
+> **🤖 2026-09-03 „PERFEKT + AUTONOM"-WELLE (Stufen A–F, Pair Claude+Codex, Reihenfolge B→C→D→E→F→A; wartet auf Release v1.11.0):**
+> **A Release-Workflow:** `scripts/release-v1.sh <sha> vX.Y.Z [--yes|--dry-run|--no-wait]` baut im Wegwerf-Worktree den
+> KANDIDATEN-Branch `release-vX.Y.Z` = sha + 1 Commit (alle internen Refs `@v1` → `@release-vX.Y.Z` — auf den BRANCH, nicht
+> den SHA, sonst floaten verschachtelte Refs ab Ebene 2 wieder auf @v1 [Codex]; `.release-source` sha+version) und pusht ihn.
+> `release.yml` (on push release-*, concurrency v1-release): prep (HEAD^==sha, Branch==release-<version>, kein `@v1` vor
+> Whitespace/EOL, ≥1 Ref auf @branch, origin/branch==GITHUB_SHA, Tag frei, alter v1 Vorfahr) → 4 Smokes per `workflow_call`
+> (`_smoke-ci`, `_smoke-docker-build` push=true ubuntu+self-hosted, `_smoke-promotion`; Ebenen-Limit 4 eingehalten) →
+> release (Race-Recheck, Branch-HEAD unverändert, `git push --atomic refs/tags/vX.Y.Z +refs/tags/v1` — Force nur auf v1) →
+> cleanup (Branch weg nur bei success). Getaggt wird der ORIGINAL-SHA. **Token-Realität GEMESSEN:** Ruleset-Bypass für die
+> Actions-Integration ⇒ 422, Deploy-Keys org-seitig deaktiviert ⇒ ohne Repo-Secret `RELEASE_TOKEN` (fine-grained PAT eines
+> Admins, contents:write → Checkout-Token → Admin-Bypass) endet der Job am Tag-Push mit klarer Meldung, Tags unberührt, Branch
+> bleibt; `gh run rerun --failed` nach Secret-Anlage genügt. Classifier blockte das Abschwächen des Rulesets — Azad-Entscheid.
+> **B** crane v0.22.0 (sha256 gepinnt, inline in docker-build/promote/verify/smoke-promotion — Composite wäre Henne-Ei):
+> `crane digest`/`crane tag` byte-identisch; Backups + Promote (promote-verify-Tag hart, :latest zuletzt) + Rollbacks
+> (MANIFEST_UNKNOWN/NAME_UNKNOWN ≠ Fehler); `imagetools create` NIRGENDS mehr; multi-arch fail-closed ohne
+> `allow-multiarch-rebuild`. **C** Semgrep/Trivy/CodeQL: SARIF-Artefakte + Zähler im Summary, Tool-Fehler = „nicht auswertbar"
+> (nur outcome==success zählt). **D** `full-ci-paths` (Test/Build-Lanes erzwingen ohne Gate-Härtung; Filter `fullci`, Platzhalter-
+> Glob) — rechnungsapp-Caller NACH Release umstellen (templates/static/translations). **E** `tia-verdict` (complete/shards_missing/
+> parse_errors) + TIA-Ledger in pipeline-analytics (nur complete zählt, FN-Rate, Ø Einsparung). **F** jarvis `routines/code-watch.md`
+> a4d1459: Merge nur bei Lauf für exakt headRefOid, completed+success. Codex-Beiträge: B1/B2 (Promote-Reihenfolge, Rollback-
+> Klassifikation), C1 (Semgrep-Zählung), E1 (Verdict-Vollständigkeit), A1–A3 (Branch-Ref, atomarer Push, Regex), A-R2 (issues:write,
+> Dry-Run). Dissens: „hermetisch" — Branch-Ref bleibt beweglich (2× HEAD-Check, nicht kryptografisch).
+>
 > **🧹 2026-09-03 AUDIT-REST-WELLE auf dev (Pair Claude+Codex, 3 Etappen à 1–2 Runden; wartet auf User-Release v1.10.8):**
 > **Fund 3 (Kern):** single-arch pusht das GESCANNTE lokale Image (`docker push` nach `:verify-<branch>` → Digest →
 > `imagetools create` je Tag, NORMAL zuerst, Deploy-Tag `:staging/:latest/:candidate-*` als LETZTE Operation, jeder Retag
