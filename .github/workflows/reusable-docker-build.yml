@@ -289,29 +289,40 @@ jobs:
       # Single-arch: das GEPRUEFTE lokale Image wird gepusht — gleiche Bytes wie
       # Size-Gate/Trivy/Smoke/SBOM gesehen haben, per Konstruktion. Reihenfolge
       # (Codex-Fund R1-E1): ERST unter einem NICHT deployenden Verify-Tag hochladen
-      # (Watchtower zieht nur :staging/:latest), Digest bestimmen, DANN alle Deploy-
-      # Tags server-seitig per `imagetools create <image>@<digest>` setzen. Scheitert
+      # (Watchtower zieht nur :staging/:latest), Digest bestimmen, DANN die weiteren
+      # Tags per `docker push` desselben Images setzen, Deploy-Tag zuletzt. Scheitert
       # irgendetwas davor, ist kein Deploy-Tag bewegt worden. Verify-Tag ist pro
-      # Branch fix (wird ueberschrieben, akkumuliert nicht); die Retags haengen am
-      # Digest, nicht am Tag — ein paralleler Lauf kann sie nicht verfaelschen.
-      - name: Push scanned image (single-arch, verify-tag first, then retag by digest)
+      # Branch fix (wird ueberschrieben, akkumuliert nicht).
+      - name: Push scanned image (single-arch, verify-tag first, deploy tag last)
         if: ${{ inputs.push && inputs.platforms == 'linux/amd64' }}
         id: push
         env:
           TAGS: ${{ steps.meta.outputs.tags }}
           REF_NAME: ${{ github.ref_name }}
         run: |
+          set -o pipefail            # `docker push | tee` darf einen Push-Fehler nicht maskieren
+          shopt -s inherit_errexit   # `set -e` gilt sonst NICHT in $(…) (Bash-Default; Codex-Fund R4-E1)
+          # Jeder Tag wird per `docker push` desselben lokalen Images gesetzt — der Manifest-
+          # Digest ist dann fuer alle Tags identisch. GEMESSEN (Smoke 33753622330): `docker
+          # buildx imagetools create <tag> <image>@<digest>` serialisiert einen per docker
+          # gepushten schema2-Manifest NEU (Tag loeste auf einen anderen Digest auf) —
+          # deshalb kein imagetools create mehr in diesem Job.
+          push_tag() {   # $1 = Ziel-Tag; gibt den Manifest-Digest aus der push-Ausgabe zurueck
+            docker tag "$CI_TAG" "$1" || return $?
+            # Expliziter Rueckgabe-Check: ein Push, der erst den Digest druckt und dann
+            # fehlschlaegt, darf nicht als Erfolg geparst werden.
+            docker push "$1" | tee /tmp/push.log >&2 || return $?
+            grep -oE 'digest: sha256:[0-9a-f]{64}' /tmp/push.log | head -1 | cut -d' ' -f2
+          }
           VERIFY="${IMAGE_NAME}:verify-$(printf '%s' "$REF_NAME" | tr -c 'A-Za-z0-9_.-' '-')"
-          docker tag "$CI_TAG" "$VERIFY"
-          docker push "$VERIFY" | tee /tmp/push.log
-          DIGEST=$(grep -oE 'digest: sha256:[0-9a-f]{64}' /tmp/push.log | head -1 | cut -d' ' -f2)
+          DIGEST=$(push_tag "$VERIFY")
           [ -n "$DIGEST" ] || { echo "::error::no digest in push output for $VERIFY"; exit 1; }
-          # Gegenprobe: Registry-Digest == das, was wir hochgeladen haben.
+          # Gegenprobe: Registry loest den Digest auf (das ist, was Watchtower ziehen wird).
           docker buildx imagetools inspect "${IMAGE_NAME}@${DIGEST}" >/dev/null || { echo "::error::pushed digest ${DIGEST} not resolvable in registry"; exit 1; }
-          # Retag-Reihenfolge (Codex-Fund R2-E1): erst alle NICHT deployenden Tags, der
-          # Deploy-Tag (:staging / :latest / :candidate-*) als letzte mutierende Operation.
-          # Alle kontrollierbaren harten Pruefungen liegen davor; was bleibt, ist die
-          # Registry-Grundunsicherheit (s.u.), keine absolute Garantie.
+          # Reihenfolge (Codex-Fund R2-E1): erst alle NICHT deployenden Tags, der Deploy-Tag
+          # (:staging / :latest / :candidate-*) als letzte mutierende Operation. Alle harten
+          # Pruefungen liegen davor; was bleibt, ist die Registry-Grundunsicherheit
+          # "Server mutiert, Client verliert die Antwort" — keine absolute Garantie.
           NORMAL=(); DEPLOY=()
           while IFS= read -r T; do
             [ -n "$T" ] || continue
@@ -323,20 +334,14 @@ jobs:
           [ "${#DEPLOY[@]}" -le 1 ] || { echo "::error::more than one deploy tag in one push (${DEPLOY[*]}) — refusing"; exit 1; }
           N=$(( ${#NORMAL[@]} + ${#DEPLOY[@]} ))
           [ "$N" -gt 0 ] || { echo "::error::no tags set (metadata produced none)"; exit 1; }
-          # Harte Digest-Gegenmessung NUR an den NORMAL-Tags (Codex-Fund R3-E1): nach dem
-          # Deploy-Retag folgt kein harter Check mehr, sonst kann der Job rot enden, obwohl
-          # der Deploy-Tag schon bewegt ist. Was bleibt, ist die Registry-Grundunsicherheit
-          # "Server mutiert, Client verliert die Antwort" — die ist nicht wegzubauen.
           for T in "${NORMAL[@]}"; do
-            docker buildx imagetools create --tag "$T" "${IMAGE_NAME}@${DIGEST}"
-            GOT=$(docker buildx imagetools inspect "$T" --format '{{.Manifest.Digest}}')
-            [ "$GOT" = "$DIGEST" ] || { echo "::error::retag $T resolved to ${GOT}, expected ${DIGEST} — deploy tag NOT touched"; exit 1; }
+            D=$(push_tag "$T")
+            [ "$D" = "$DIGEST" ] || { echo "::error::tag $T pushed as ${D:-?}, expected ${DIGEST} — deploy tag NOT touched"; exit 1; }
           done
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
           for T in "${DEPLOY[@]}"; do
-            docker buildx imagetools create --tag "$T" "${IMAGE_NAME}@${DIGEST}"   # letzte mutierende Operation
-            docker buildx imagetools inspect "$T" --format '{{.Manifest.Digest}}' 2>/dev/null | grep -qx "$DIGEST" \
-              || echo "::warning::post-check of deploy tag $T inconclusive (tag was set; verify manually if unsure)"
+            D=$(push_tag "$T")   # letzte mutierende Operation; danach nur noch Soft-Check
+            [ "$D" = "$DIGEST" ] || echo "::warning::deploy tag $T pushed as ${D:-?}, expected ${DIGEST} (tag was set; verify manually)"
           done
           echo "::notice::pushed scanned image ${DIGEST} as ${VERIFY}; ${#NORMAL[@]} normal tag(s) verified, then deploy tag(s): ${DEPLOY[*]:-none}"
 
