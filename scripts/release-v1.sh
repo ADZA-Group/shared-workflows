@@ -93,7 +93,8 @@ git worktree add -q --detach "$WT_ARG" "$RELEASE_SHA"
     echo "::error::Rewrite unvollstaendig" >&2; exit 1
   fi
   printf 'sha=%s\nversion=%s\n' "$RELEASE_SHA" "$VERSION_TAG" > .release-source
-  git checkout -q -b "$BRANCH"
+  # Auf detached HEAD committen und per Refspec pushen — KEIN lokaler Branch (ein Dry-Run
+  # hinterliess sonst `release-vX.Y.Z` lokal und blockierte den echten Lauf, GEMESSEN 03.09.).
   git add -A .github .release-source
   git -c user.name="$TAG_NAME" -c user.email="$TAG_EMAIL" commit -q -m "release-candidate: $VERSION_TAG — internal refs @v1 -> @${BRANCH}
 
@@ -104,7 +105,7 @@ Wegwerf-Commit fuer release.yml (Kandidaten-Branch). Getaggt wird ${RELEASE_SHA}
     echo "✓ DRY-RUN — Kandidat lokal gebaut und validiert (Codex A-R2: Dry-Run prueft den Rewrite), kein Push."
     exit 0
   fi
-  git push -q origin "$BRANCH"
+  git push -q origin "HEAD:refs/heads/${BRANCH}"
 )
 [ "$DRY_RUN" = 1 ] && exit 0
 ok "Kandidaten-Branch $BRANCH gepusht — release.yml laeuft"
