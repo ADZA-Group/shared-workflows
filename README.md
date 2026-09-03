@@ -13,7 +13,7 @@ The goal: every app's `.github/workflows/build.yml` is a ~25-line caller of
 | Workflow | Purpose |
 |----------|---------|
 | `reusable-ci.yml` | **Orchestrator** — the one pipeline: changes → lint → security → test-matrix → coverage → docker build → telemetry |
-| `reusable-security-scan.yml` | gitleaks · Bandit · Semgrep · Trivy fs/IaC · pip-audit · CodeQL (py+js) · dependency-review · OPA. Dual-gate (advisory on PR/dev, blocking on main/tags) |
+| `reusable-security-scan.yml` | gitleaks · Bandit · Semgrep · Trivy fs/IaC · pip-audit · CodeQL (py+js) · dependency-review · OPA. Gates: gitleaks **always hard**; Bandit-HIGH **blocks on main/tags and on risky pushes**; Semgrep, Trivy fs/IaC, pip-audit, CodeQL, dependency-review, OPA **always advisory** (policy decision — the Trivy *image* scan in `reusable-docker-build` blocks on main/tags) |
 | `reusable-docker-build.yml` | buildx + size gate + Trivy image gate + SBOM + smoke; optional GHCR push + cosign keyless + SLSA provenance + multi-arch + `:previous` backup |
 | `reusable-load-test.yml` | k6 with enforced p95 + error-rate budgets (advisory/blocking toggle) |
 | `reusable-notify.yml` | Discord / Slack / Telegram alerts |
@@ -116,7 +116,11 @@ jobs:
 ```
 
 Gates: yamllint (relaxed) · `docker compose config` · gitleaks · OPA/conftest on the compose.
-gitleaks is always hard; the rest dual-gate (advisory on PR/dev, blocking on main/tags).
+gitleaks is always hard. Bandit-HIGH blocks on main/tags and on risky pushes (`force-blocking`).
+Semgrep, Trivy fs/IaC, pip-audit, CodeQL, dependency-review and OPA are **always advisory** — a
+deliberate policy (Semgrep noise blocked main in v1.3.x); the Trivy *image* scan in
+`reusable-docker-build` is the hard vulnerability gate on main/tags. DAST and load-test are
+advisory in the orchestrator (`blocking: false`). Audit 2026-09-03: docs now match the code.
 
 ## Frontend accessibility & performance
 

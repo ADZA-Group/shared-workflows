@@ -3,7 +3,28 @@
 > **Für Claude (neue Session):** Dies ist der Wiederaufnahme-Handoff für die Unified-CI-Initiative.
 > Stand **2026-07-21**, branch `dev`. **Released: floating `@v1` = `v1.10.1` (commit `c98ad45`, ls-remote-verifiziert).**
 >
-> **🔬 2026-09-03 FLEET-CI-AUDIT (Pair Claude+Codex, 3 Runden) + FIX A+X auf dev — wartet auf User-Release (`@v1` = v1.10.6 = 58fb669):**
+> **✅ RELEASED 2026-09-03 (User via release-v1.sh, ls-remote-verifiziert): `@v1` = `v1.10.7` = `98d49c7`** — Fix A+X ist fleet-live.
+> Fleet-Beweis: rechnungsapp Run 33750934660 (Attempt 2 grün; Attempt 1 fiel im ALTEN zweiten buildx-Push an
+> „failed to fetch anonymous token … ghcr.io/token … 403" — genau der Schritt, den die Audit-Welle unten abschafft).
+>
+> **🧹 2026-09-03 AUDIT-REST-WELLE auf dev (Pair Claude+Codex, 3 Etappen à 1–2 Runden; wartet auf User-Release v1.10.8):**
+> **Fund 3 (Kern):** single-arch pusht das GESCANNTE lokale Image (`docker push` nach `:verify-<branch>` → Digest →
+> `imagetools create` je Tag, NORMAL zuerst, Deploy-Tag `:staging/:latest/:candidate-*` als LETZTE Operation, jeder Retag
+> per inspect gegen den Digest gemessen); Metadata-Step vor Build 1 (Labels im geprüften Image); multi-arch behält buildx-
+> Rebuild (Caveat). **B** diff-cov: main-Push vergleicht `github.event.before`, Composite lehnt ungültigen/identischen Ref auf
+> blocking ab (kein Fallback), Tags ⇒ diff-cov aus. **5** DAST: Parse-Fehler ⇒ exit 1. **6** Backups ohne CoE, Registry-404
+> nur per `manifest unknown|MANIFEST_UNKNOWN|no such manifest|<ref>: not found`. **F** notify per `jq -n --arg` + Telegram
+> `--data-urlencode`. **D** cosign self-hosted: `$HOME/.cache/adza/cosign-<ver>` + sha256 bei JEDER Nutzung, mktemp+mv;
+> hosted weiter cosign-installer. **1+2** alle Caller-Inputs in Composites/Reusables via `env:` (Listen per `read -ra`).
+> **7** sha256-Pins: gitleaks 8.21.2, hadolint 2.12.0, conftest 0.56.0, actionlint 1.7.12, osv 1.9.1, cosign v3.1.3;
+> trufflehog install.sh auf v3.97.2; nuclei Digest-gepinnt; IMMER aus Tarball nach `$RUNNER_TEMP` (kein command-v-Shortcut).
+> **C** weekly-cleanup: nur `retention-days` (30) + keep-runs-Floor, KEIN Status-Löschen mehr. **G** Ruleset `protect-v1-tag`
+> (id 22190724: update/deletion/non_fast_forward auf refs/tags/v1, Bypass Repo-Admin). **H** recyclage-Caller cloud-runner-label.
+> **README** = Code (Security-Gates ehrlich). `_smoke-docker-build` hat dispatch-Inputs `push`/`runner-label` für den echten
+> Verify→Retag-Pfad in ghcr.io/adza-group/smoke-fixture. NICHT gemacht (bewusst): 8 (Perm-Split), Org allowed_actions,
+> sha_pinning_required (verbietet interne @v1-Refs), 104-Cron, MitarbeiterApp-Dependabot. Codex-Beiträge: R1 Push-Reihenfolge,
+> Tag-Push-Block, not-found-Regex; R2 Deploy-Tag-zuletzt, command-v-Bypass, nuclei-Pin.
+> **🔬 2026-09-03 FLEET-CI-AUDIT (Pair Claude+Codex, 3 Runden) + FIX A+X (dev `dea4e6d`+`98d49c7`):**
 > Vollbericht: Vault `45-reports/2026-09-03-ci-audit.md` + Windows-Memory `ci-audit-2026-09-03`. **P1 A:** `property-tests`
 > (BLOCKING bei risky) und `license-check` (BLOCKING main/tags) standen NICHT in `docker-build.needs` → Rot färbte nur den
 > Run, Image war gepusht + Watchtower hatte es gezogen. **P2 X (Codex):** harte Gates prüften `!= 'failure'` → `cancelled`
