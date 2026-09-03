@@ -25,13 +25,27 @@ import sys
 
 import yaml
 
-WF = pathlib.Path(__file__).resolve().parents[1] / ".github" / "workflows" / "reusable-ci.yml"
+WF = (
+    pathlib.Path(__file__).resolve().parents[1]
+    / ".github"
+    / "workflows"
+    / "reusable-ci.yml"
+)
 RESULTS = ("success", "failure", "skipped", "cancelled")
 OK = ("success", "skipped")
 # Jedes harte Gate MUSS in docker-build.needs stehen — ein Gate, das fehlt, kann
 # im if-Ausdruck gar nicht vorkommen (genau das war Fund A).
-HARD_GATES = ("test-matrix", "security", "branch-policy", "coverage", "e2e", "lint-python",
-              "lint-dockerfile", "property-tests", "license-check")
+HARD_GATES = (
+    "test-matrix",
+    "security",
+    "branch-policy",
+    "coverage",
+    "e2e",
+    "lint-python",
+    "lint-dockerfile",
+    "property-tests",
+    "license-check",
+)
 CHANGE_KEYS = ("light", "any_code", "docker", "ci", "risky")
 EVENTS = ("push", "pull_request", "workflow_dispatch", "schedule")
 REFS = ("refs/heads/main", "refs/heads/dev", "refs/tags/v1.2.3")
@@ -52,7 +66,14 @@ def to_python(expr: str) -> str:
 
 
 def is_hard(gate: str, changes: dict, ref: str) -> bool:
-    if gate in ("test-matrix", "security", "branch-policy", "coverage", "e2e", "lint-python"):
+    if gate in (
+        "test-matrix",
+        "security",
+        "branch-policy",
+        "coverage",
+        "e2e",
+        "lint-python",
+    ):
         return True
     if gate in ("lint-dockerfile", "property-tests"):
         return changes["risky"] == "true"
@@ -74,7 +95,19 @@ def main() -> int:
     def runs(needs, changes, event, ref):
         # eval ist hier gewollt: Eingabe ist ausschliesslich der if-Ausdruck aus der
         # eigenen, versionierten Workflow-Datei (kein Fremd-Input), Namensraum leer.
-        return bool(eval(code, {"__builtins__": {}}, {"needs": needs, "changes": changes, "event": event, "ref": ref, "inputs": {}}))
+        return bool(
+            eval(
+                code,
+                {"__builtins__": {}},
+                {
+                    "needs": needs,
+                    "changes": changes,
+                    "event": event,
+                    "ref": ref,
+                    "inputs": {},
+                },
+            )
+        )
 
     contexts = [
         (dict(zip(CHANGE_KEYS, flags)), event, ref)
@@ -85,7 +118,13 @@ def main() -> int:
 
     # Sicherheitsnetz: Happy-Path muss bauen, sonst beweist die Matrix nichts.
     happy = {n: "success" for n in needs_names}
-    happy_changes = {"light": "false", "any_code": "true", "docker": "true", "ci": "true", "risky": "false"}
+    happy_changes = {
+        "light": "false",
+        "any_code": "true",
+        "docker": "true",
+        "ci": "true",
+        "risky": "false",
+    }
     if not runs(happy, happy_changes, "push", "refs/heads/dev"):
         print("::error::Happy-Path baut nicht — Matrix waere vakuum-gruen")
         return 1
@@ -115,7 +154,9 @@ def main() -> int:
                     if runs(needs, changes, event, ref):
                         violations += 1
                         if violations <= 12:
-                            print(f"VIOLATION {gate}={bad} ref={ref} changes={changes} others={needs}")
+                            print(
+                                f"VIOLATION {gate}={bad} ref={ref} changes={changes} others={needs}"
+                            )
     print(f"docker-build needs: {needs_names}")
     print(f"checked={checked} violations={violations}")
     return 1 if violations else 0
