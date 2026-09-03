@@ -1,6 +1,7 @@
 name: "🔥 smoke: promotion"
 on:
   workflow_dispatch: {}
+  workflow_call: {}   # Stufe A: vom Release-Workflow auf dem Kandidaten-Branch aufgerufen
 
 permissions:
   contents: read
@@ -53,19 +54,37 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build + push candidate
+      - name: Build candidate (load) + push via docker (schema2, wie der Fleet-Pfad)
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7.3.0
         with:
           context: tests/fixtures/docker
           file: tests/fixtures/docker/Dockerfile
-          push: true
+          push: false
+          load: true
           tags: ghcr.io/adza-group/shared-workflows-smoke:candidate-${{ github.sha }}
-      - name: Promote + assert digest equality
+      - name: Install crane (pinned, sha256-verified)
+        env:
+          CRANE_VERSION: v0.22.0
+          CRANE_SHA256: edb74d53fad9a596860f59d1c5d04a43dfb5f441dc71f57060dd0bf39483c833
         run: |
-          IMG="ghcr.io/adza-group/shared-workflows-smoke"
-          docker buildx imagetools create --tag "${IMG}:latest-smoke" "${IMG}:candidate-${{ github.sha }}"
-          D1=$(docker buildx imagetools inspect "${IMG}:candidate-${{ github.sha }}" --format '{{json .Manifest.Digest}}')
-          D2=$(docker buildx imagetools inspect "${IMG}:latest-smoke" --format '{{json .Manifest.Digest}}')
-          echo "candidate=$D1  latest-smoke=$D2"
-          [ -n "$D1" ] && [ "$D1" = "$D2" ] || { echo "::error::digest mismatch after retag"; exit 1; }
-          echo "✅ digest-stable promotion verified"
+          curl -sSfL "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz" -o "$RUNNER_TEMP/crane.tgz"
+          echo "${CRANE_SHA256}  $RUNNER_TEMP/crane.tgz" | sha256sum -c --quiet - || { echo "::error::crane checksum mismatch"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/crane-bin" && tar xz -C "$RUNNER_TEMP/crane-bin" -f "$RUNNER_TEMP/crane.tgz" crane
+          echo "$RUNNER_TEMP/crane-bin" >> "$GITHUB_PATH"
+      - name: Push candidate + promote via crane + assert digest equality
+        env:
+          IMG: ghcr.io/adza-group/shared-workflows-smoke
+          SHA: ${{ github.sha }}
+        run: |
+          set -o pipefail
+          docker push "${IMG}:candidate-${SHA}" | tee /tmp/push.log
+          PUSHED=$(grep -oE 'digest: sha256:[0-9a-f]{64}' /tmp/push.log | head -1 | cut -d' ' -f2)
+          D1=$(crane digest "${IMG}:candidate-${SHA}")
+          [ "$D1" = "$PUSHED" ] || { echo "::error::registry digest $D1 != pushed $PUSHED"; exit 1; }
+          crane tag "${IMG}@${D1}" latest-smoke
+          D2=$(crane digest "${IMG}:latest-smoke")
+          echo "pushed=$PUSHED candidate=$D1 latest-smoke=$D2"
+          [ "$D1" = "$D2" ] || { echo "::error::digest mismatch after crane tag"; exit 1; }
+          # Negativ-Kontrolle: imagetools create haette (schema2) einen anderen Digest erzeugt — nur beobachten.
+          docker buildx imagetools create --tag "${IMG}:imagetools-smoke" "${IMG}@${D1}" 2>/dev/null             && echo "imagetools-smoke=$(crane digest "${IMG}:imagetools-smoke") (Beobachtung, kein Gate)" || true
+          echo "✅ digest-stable promotion verified (crane)"

@@ -77,6 +77,11 @@ on:
         type: boolean
         default: false
         description: "dev-push (light CI): Trivy/SBOM/Sign ueberspringen — nur Build+Push. main/PR/tag bleiben voll gescannt+signiert."
+      allow-multiarch-rebuild:
+        required: false
+        type: boolean
+        default: false
+        description: "⚠️ Multi-arch pusht einen ZWEITEN buildx-Build (gescannt wurde nur das lokale amd64-Image). Ohne dieses explizite Opt-in ist platforms != linux/amd64 bei push=true fail-closed (Audit 2026-09-03, Fund 3)."
       build-args:
         required: false
         type: string
@@ -244,47 +249,57 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Backup-Steps (Audit 2026-09-03, Fund 6): kein continue-on-error mehr — ein
-      # Registry-/Auth-/Netzfehler beim Backup blockt den Push, sonst rollt ein
-      # spaeterer Auto-Rollback auf ein veraltetes :previous. "Tag existiert nicht"
-      # (Erst-Push) wird EXPLIZIT von "inspect fehlgeschlagen" unterschieden.
+      # crane (go-containerregistry, gepinnt + sha256): Registry-Operationen byte-identisch.
+      # GEMESSEN 03.09. (Smoke 33753622330): `docker buildx imagetools create` serialisiert
+      # per docker gepushte schema2-Manifeste neu (anderer Digest) — crane tag kopiert das
+      # Manifest unveraendert. Inline statt Composite: ein neues Composite waere per @v1
+      # erst NACH dem Release aufloesbar (Henne-Ei), inline ist sofort smoke-bar.
+      - name: Install crane (pinned, sha256-verified)
+        if: ${{ inputs.push }}
+        env:
+          CRANE_VERSION: v0.22.0
+          CRANE_SHA256: edb74d53fad9a596860f59d1c5d04a43dfb5f441dc71f57060dd0bf39483c833
+        run: |
+          curl -sSfL "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz" -o "$RUNNER_TEMP/crane.tgz"
+          echo "${CRANE_SHA256}  $RUNNER_TEMP/crane.tgz" | sha256sum -c --quiet - || { echo "::error::crane checksum mismatch"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/crane-bin" && tar xz -C "$RUNNER_TEMP/crane-bin" -f "$RUNNER_TEMP/crane.tgz" crane
+          echo "$RUNNER_TEMP/crane-bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/crane-bin/crane" version
+
+      # Backup-Steps (Audit 2026-09-03, Fund 6): kein continue-on-error — ein Registry-/
+      # Auth-/Netzfehler beim Backup blockt den Push, sonst rollt ein spaeterer Auto-
+      # Rollback auf ein veraltetes :previous. "Tag existiert nicht" (Erst-Push) wird per
+      # Registry-Fehlercode (MANIFEST_UNKNOWN/NAME_UNKNOWN) von "Fehler" unterschieden.
+      # crane tag kopiert byte-identisch; der Ziel-Digest wird gegengemessen.
       - name: "Backup :latest -> :previous (main only)"
         if: ${{ inputs.push && github.ref == 'refs/heads/main' && !inputs.gated-promotion }}
         env: { FROM: latest, TO: previous }
         run: |
-          set +e
-          OUT=$(docker buildx imagetools inspect "${IMAGE_NAME}:${FROM}" 2>&1); RC=$?
-          set -e
-          if [ "$RC" -eq 0 ]; then
-            docker buildx imagetools create --tag "${IMAGE_NAME}:${TO}" "${IMAGE_NAME}:${FROM}"
-            echo "::notice::backed up :${FROM} -> :${TO}"
-          elif printf '%s' "$OUT" | grep -qiE 'manifest unknown|MANIFEST_UNKNOWN|no such manifest' \
-               || printf '%s' "$OUT" | grep -qF "${IMAGE_NAME}:${FROM}: not found"; then
-            # NUR Registry-404 (Codex-Fund R1-E3): generisches "not found" traf auch
-            # Credential-Helper-Fehler ("credentials not found in native keychain").
-            echo "::notice::no existing :${FROM} to back up (first push)"
-          else
-            echo "::error::imagetools inspect ${IMAGE_NAME}:${FROM} failed (rc=$RC) — Backup unklar, Push geblockt"; printf '%s\n' "$OUT"; exit 1
+          if ! SRC=$(crane digest "${IMAGE_NAME}:${FROM}" 2>/tmp/crane.err); then
+            if grep -qiE 'MANIFEST_UNKNOWN|manifest unknown|NAME_UNKNOWN' /tmp/crane.err; then
+              echo "::notice::no existing :${FROM} to back up (first push)"; exit 0
+            fi
+            echo "::error::crane digest ${IMAGE_NAME}:${FROM} failed — Backup unklar, Push geblockt"; cat /tmp/crane.err; exit 1
           fi
+          crane tag "${IMAGE_NAME}@${SRC}" "${TO}"
+          DST=$(crane digest "${IMAGE_NAME}:${TO}")
+          [ "$DST" = "$SRC" ] || { echo "::error::backup :${TO} resolved to ${DST}, expected ${SRC}"; exit 1; }
+          echo "::notice::backed up :${FROM} -> :${TO} (${SRC})"
 
       - name: "Backup :staging -> :staging-previous (dev only)"
         if: ${{ inputs.push && github.ref == 'refs/heads/dev' }}
         env: { FROM: staging, TO: staging-previous }
         run: |
-          set +e
-          OUT=$(docker buildx imagetools inspect "${IMAGE_NAME}:${FROM}" 2>&1); RC=$?
-          set -e
-          if [ "$RC" -eq 0 ]; then
-            docker buildx imagetools create --tag "${IMAGE_NAME}:${TO}" "${IMAGE_NAME}:${FROM}"
-            echo "::notice::backed up :${FROM} -> :${TO}"
-          elif printf '%s' "$OUT" | grep -qiE 'manifest unknown|MANIFEST_UNKNOWN|no such manifest' \
-               || printf '%s' "$OUT" | grep -qF "${IMAGE_NAME}:${FROM}: not found"; then
-            # NUR Registry-404 (Codex-Fund R1-E3): generisches "not found" traf auch
-            # Credential-Helper-Fehler ("credentials not found in native keychain").
-            echo "::notice::no existing :${FROM} to back up (first push)"
-          else
-            echo "::error::imagetools inspect ${IMAGE_NAME}:${FROM} failed (rc=$RC) — Backup unklar, Push geblockt"; printf '%s\n' "$OUT"; exit 1
+          if ! SRC=$(crane digest "${IMAGE_NAME}:${FROM}" 2>/tmp/crane.err); then
+            if grep -qiE 'MANIFEST_UNKNOWN|manifest unknown|NAME_UNKNOWN' /tmp/crane.err; then
+              echo "::notice::no existing :${FROM} to back up (first push)"; exit 0
+            fi
+            echo "::error::crane digest ${IMAGE_NAME}:${FROM} failed — Backup unklar, Push geblockt"; cat /tmp/crane.err; exit 1
           fi
+          crane tag "${IMAGE_NAME}@${SRC}" "${TO}"
+          DST=$(crane digest "${IMAGE_NAME}:${TO}")
+          [ "$DST" = "$SRC" ] || { echo "::error::backup :${TO} resolved to ${DST}, expected ${SRC}"; exit 1; }
+          echo "::notice::backed up :${FROM} -> :${TO} (${SRC})"
 
       # Single-arch: das GEPRUEFTE lokale Image wird gepusht — gleiche Bytes wie
       # Size-Gate/Trivy/Smoke/SBOM gesehen haben, per Konstruktion. Reihenfolge
@@ -318,7 +333,7 @@ jobs:
           DIGEST=$(push_tag "$VERIFY")
           [ -n "$DIGEST" ] || { echo "::error::no digest in push output for $VERIFY"; exit 1; }
           # Gegenprobe: Registry loest den Digest auf (das ist, was Watchtower ziehen wird).
-          docker buildx imagetools inspect "${IMAGE_NAME}@${DIGEST}" >/dev/null || { echo "::error::pushed digest ${DIGEST} not resolvable in registry"; exit 1; }
+          [ "$(crane digest "${IMAGE_NAME}@${DIGEST}")" = "$DIGEST" ] || { echo "::error::pushed digest ${DIGEST} not resolvable in registry"; exit 1; }
           # Reihenfolge (Codex-Fund R2-E1): erst alle NICHT deployenden Tags, der Deploy-Tag
           # (:staging / :latest / :candidate-*) als letzte mutierende Operation. Alle harten
           # Pruefungen liegen davor; was bleibt, ist die Registry-Grundunsicherheit
@@ -348,8 +363,14 @@ jobs:
       # Multi-arch: buildx muss neu bauen (arm64 wurde lokal nie geladen). Caveat
       # (README): das gepushte arm64-Image ist nicht das gescannte; amd64 kommt
       # aus demselben Build-Cache.
-      - name: Build + push (multi-arch)
-        if: ${{ inputs.push && inputs.platforms != 'linux/amd64' }}
+      - name: Refuse multi-arch push without explicit opt-in (fail-closed)
+        if: ${{ inputs.push && inputs.platforms != 'linux/amd64' && !inputs.allow-multiarch-rebuild }}
+        run: |
+          echo "::error::platforms='${{ inputs.platforms }}' braucht einen zweiten buildx-Build, dessen arm64-Image NICHT das gescannte ist. Setze allow-multiarch-rebuild: true, wenn das bewusst akzeptiert wird."
+          exit 1
+
+      - name: Build + push (multi-arch, UNSCANNED rebuild — explicit opt-in)
+        if: ${{ inputs.push && inputs.platforms != 'linux/amd64' && inputs.allow-multiarch-rebuild }}
         id: build-push
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7.3.0
         with:
@@ -364,6 +385,11 @@ jobs:
           build-args: |
             ${{ inputs.build-args }}
             GIT_SHA=${{ github.sha }}
+
+      - name: Multi-arch summary note
+        if: ${{ inputs.push && inputs.platforms != 'linux/amd64' && inputs.allow-multiarch-rebuild }}
+        run: |
+          echo "## ⚠️ Multi-arch — gepushtes Image ist ein ZWEITER Build (nur amd64 wurde gescannt), allow-multiarch-rebuild=true" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Candidate tag output
         if: ${{ inputs.push && inputs.gated-promotion && github.ref == 'refs/heads/main' }}

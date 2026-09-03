@@ -149,7 +149,11 @@ jobs:
           install-requirements: "false"
           extra-packages: "semgrep==1.*"
           cache-key-suffix: semgrep
+      # Advisory, aber SICHTBAR (Audit 2026-09-03, Fund 4/Stufe C): Findings landen als
+      # SARIF-Artefakt + Zaehler im Summary; Tool-/Parse-Fehler heissen "nicht auswertbar",
+      # nie "0 Findings" (Codex: Findings und Werkzeugfehler getrennt halten).
       - name: Semgrep scan
+        id: semgrep
         continue-on-error: true
         env:
           SEMGREP_CONFIGS: ${{ inputs.semgrep-configs }}
@@ -160,7 +164,39 @@ jobs:
           done
           semgrep scan $CONFIGS \
             --severity ERROR --severity WARNING \
-            --exclude tests --exclude .venv --metrics off --error
+            --exclude tests --exclude .venv --metrics off \
+            --sarif --output semgrep.sarif
+      - name: Semgrep summary + artifact
+        if: always()
+        env:
+          TOOL_OUTCOME: ${{ steps.semgrep.outcome }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+          outcome = os.environ.get("TOOL_OUTCOME")
+          p = pathlib.Path("semgrep.sarif")
+          # Nur ein ERFOLGREICHER Lauf darf gezaehlt werden: eine leere/partielle SARIF nach
+          # Tool-Abbruch hiesse sonst "0 Findings" (Codex-Fund C1).
+          if outcome != "success" or not p.exists():
+              state = f"nicht auswertbar (step {outcome}, file {'ok' if p.exists() else 'fehlt'})"
+          else:
+              try:
+                  n = sum(len(r.get("results", [])) for r in json.load(open(p, encoding="utf-8")).get("runs", []))
+                  state = f"{n} Finding(s)" if n else "0 Findings"
+              except Exception as e:
+                  state = f"nicht auswertbar ({e})"
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as s:
+              s.write(f"## 🛡️ SAST — Semgrep (advisory)\n{state} — Details im Artefakt `semgrep-sarif`\n")
+          print(f"semgrep: {state}")
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        if: always()
+        continue-on-error: true
+        with:
+          name: semgrep-sarif
+          path: semgrep.sarif
+          if-no-files-found: ignore
+          retention-days: 30
 
   # ── Trivy filesystem + IaC (dual-gate via exit-code) ──────────
   trivy:
@@ -170,22 +206,63 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      # Advisory, aber SICHTBAR (Audit 2026-09-03, Stufe C): SARIF + Zaehler im Summary;
+      # Tool-Fehler = "nicht auswertbar", nie "0 Findings".
       - name: Filesystem scan
+        id: trivy-fs
+        continue-on-error: true
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           scan-type: fs
           scan-ref: .
-          format: table
+          format: sarif
+          output: trivy-fs.sarif
           severity: CRITICAL,HIGH
           exit-code: '0'
       - name: Config / IaC scan
+        id: trivy-config
+        continue-on-error: true
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           scan-type: config
           scan-ref: .
-          format: table
+          format: sarif
+          output: trivy-config.sarif
           severity: CRITICAL,HIGH,MEDIUM
           exit-code: '0'
+      - name: Trivy summary + artifact
+        if: always()
+        env:
+          FS_OUTCOME: ${{ steps.trivy-fs.outcome }}
+          CFG_OUTCOME: ${{ steps.trivy-config.outcome }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+          def count(path, outcome):
+              p = pathlib.Path(path)
+              if outcome != "success" or not p.exists():
+                  return f"nicht auswertbar (step {outcome}, file {'ok' if p.exists() else 'fehlt'})"
+              try:
+                  n = sum(len(r.get("results", [])) for r in json.load(open(p, encoding="utf-8")).get("runs", []))
+              except Exception as e:
+                  return f"nicht auswertbar ({e})"
+              return f"{n} Finding(s)" if n else "0 Findings"
+          fs = count("trivy-fs.sarif", os.environ.get("FS_OUTCOME"))
+          cfg = count("trivy-config.sarif", os.environ.get("CFG_OUTCOME"))
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as s:
+              s.write(f"## 🔍 Trivy (advisory)\n| Scan | Ergebnis |\n|---|---|\n| fs (CRITICAL/HIGH) | {fs} |\n| config/IaC (CRIT/HIGH/MED) | {cfg} |\n\nDetails im Artefakt `trivy-sarif`\n")
+          print(f"trivy fs: {fs}; config: {cfg}")
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        if: always()
+        continue-on-error: true
+        with:
+          name: trivy-sarif
+          path: |
+            trivy-fs.sarif
+            trivy-config.sarif
+          if-no-files-found: ignore
+          retention-days: 30
 
   # ── SCA: pip-audit (dual-gate) ────────────────────────────────
   pip-audit:
@@ -242,14 +319,47 @@ jobs:
           queries: security-extended
       - uses: github/codeql-action/autobuild@c35d1b164463ee62a100735382aaaa525c5d3496  # codeql-bundle-v2.25.6
       - uses: github/codeql-action/analyze@c35d1b164463ee62a100735382aaaa525c5d3496  # codeql-bundle-v2.25.6
+        id: codeql-analyze
         with:
           category: "/language:${{ matrix.language }}"
           # upload:false — a private repo without GitHub Advanced Security cannot persist SARIF to
           # code-scanning ("Resource not accessible by integration"), which left this job red-but-
           # tolerated. Skipping the upload makes the analyze step (and the job) GREEN while CodeQL
-          # still runs the full analysis (findings visible in the job log). Flip to true once GHAS
-          # is purchased to surface results in the Security tab.
+          # still runs the full analysis. Flip to true once GHAS is purchased.
           upload: false
+          # Audit 2026-09-03 (Stufe C): SARIF trotzdem schreiben → Zaehler im Summary + Artefakt,
+          # damit "gruen" nicht mit "0 Findings" verwechselt wird (bisher las die Findings niemand).
+          output: codeql-sarif
+      - name: CodeQL summary + artifact
+        if: always()
+        env:
+          OUTCOME: ${{ steps.codeql-analyze.outcome }}
+          LANG: ${{ matrix.language }}
+        run: |
+          python3 - <<'PY'
+          import glob, json, os
+          outcome, lang = os.environ.get("OUTCOME"), os.environ.get("LANG")
+          files = glob.glob("codeql-sarif/*.sarif")
+          if outcome != "success" or not files:
+              state = f"nicht auswertbar (analyze {outcome}, {len(files)} SARIF-Datei(en))"
+          else:
+              try:
+                  n = sum(len(r.get("results", [])) for f in files for r in json.load(open(f, encoding="utf-8")).get("runs", []))
+                  state = f"{n} Finding(s)" if n else "0 Findings"
+              except Exception as e:
+                  state = f"nicht auswertbar ({e})"
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as s:
+              s.write(f"## 🔬 CodeQL {lang} (advisory, kein Upload ohne GHAS)\n{state} — Details im Artefakt `codeql-sarif-{lang}`\n")
+          print(f"codeql {lang}: {state}")
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        if: always()
+        continue-on-error: true
+        with:
+          name: codeql-sarif-${{ matrix.language }}
+          path: codeql-sarif/
+          if-no-files-found: ignore
+          retention-days: 30
 
   # ── Dependency Review (PR-only, public repos only) ────────────
   dependency-review:

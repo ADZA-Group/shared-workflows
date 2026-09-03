@@ -88,6 +88,11 @@ on:
         required: false
         type: boolean
         default: false
+      allow-multiarch-rebuild:
+        required: false
+        type: boolean
+        default: false
+        description: "Nur mit multi-arch: erlaubt den ZWEITEN (ungescannten) buildx-Build fuer arm64. Ohne Opt-in ist multi-arch bei push fail-closed (Audit 2026-09-03, Fund 3)."
       sign-image:
         required: false
         type: boolean
@@ -146,6 +151,11 @@ on:
         type: string
         default: "[]"
         description: "Risk-adaptives Gating: JSON-Array zusätzlicher Globs, die IMMER mit den eingebauten Defaults (auth/security/permissions/migrations/models/payment/billing/price/delete/purge, Dockerfile, docker-compose*) UNIONiert werden — nie ersetzen. Berührt ein Push einen riskanten Pfad, läuft auch auf dev die volle CI (light aus) und property-tests/hadolint/bandit werden BLOCKING."
+      full-ci-paths:
+        required: false
+        type: string
+        default: "[]"
+        description: "Stufe D (Audit 2026-09-03): JSON-Array von Globs, die die vollen Code-Lanes (Test-Matrix, Build, Frontend) erzwingen, OHNE die Gates zu haerten oder die CI-Diaet auszuschalten. Fuer test-relevante Pfade wie templates/**, static/**, translations/** — `risky-paths` bleibt fuer sicherheitsrelevante Pfade (bandit/property/hadolint blocking + Diaet aus)."
       enable-load-test:
         required: false
         type: boolean
@@ -309,6 +319,7 @@ jobs:
       ci: ${{ steps.norm.outputs.ci }}
       any_code: ${{ steps.norm.outputs.any_code }}
       risky: ${{ steps.norm.outputs.risky }}
+      fullci: ${{ steps.norm.outputs.fullci }}
       light: ${{ steps.norm.outputs.light }}
       start_time: ${{ steps.t.outputs.epoch }}
     steps:
@@ -321,6 +332,7 @@ jobs:
         id: rf
         env:
           RISKY_EXTRA: ${{ inputs.risky-paths }}
+          FULLCI_EXTRA: ${{ inputs.full-ci-paths }}
         run: |
           python3 - <<'PY'
           import json, os, re
@@ -339,19 +351,25 @@ jobs:
                   "**/*delete*", "**/*purge*",
                   "Dockerfile", "docker-compose*",
               ],
+              # Stufe D: Caller-Globs, die nur die Code-Lanes erzwingen (kein Gate-Haerten).
+              # Leere Liste ist fuer dorny/paths-filter ungueltig → Platzhalter, der nie trifft.
+              "fullci": ["__adza_never_matches__/**"],
           }
-          try:
-              extra = json.loads(os.environ.get("RISKY_EXTRA") or "[]")
-              if not isinstance(extra, list):
-                  raise ValueError("not a list")
-          except Exception as e:
-              print(f"::warning::risky-paths ist kein JSON-Array ({e}) — Defaults gelten trotzdem")
-              extra = []
-          for g in extra:
-              if isinstance(g, str) and g and not re.search(r"[\n'\"]", g):
-                  base["risky"].append(g)
-              else:
-                  print(f"::warning::risky-paths-Eintrag ignoriert (kein schlichter Glob): {g!r}")
+          def add_globs(env_name, key, label):
+              try:
+                  extra = json.loads(os.environ.get(env_name) or "[]")
+                  if not isinstance(extra, list):
+                      raise ValueError("not a list")
+              except Exception as e:
+                  print(f"::warning::{label} ist kein JSON-Array ({e}) — Defaults gelten trotzdem")
+                  extra = []
+              for g in extra:
+                  if isinstance(g, str) and g and not re.search(r"[\n'\"]", g):
+                      base[key].append(g)
+                  else:
+                      print(f"::warning::{label}-Eintrag ignoriert (kein schlichter Glob): {g!r}")
+          add_globs("RISKY_EXTRA", "risky", "risky-paths")
+          add_globs("FULLCI_EXTRA", "fullci", "full-ci-paths")
           lines = []
           for key, globs in base.items():
               lines.append(f"{key}:")
@@ -377,6 +395,7 @@ jobs:
           F_FRONT: ${{ steps.filter.outputs.frontend }}
           F_CI: ${{ steps.filter.outputs.ci }}
           F_RISKY: ${{ steps.filter.outputs.risky }}
+          F_FULLCI: ${{ steps.filter.outputs.fullci }}
           MAIN_PUSH: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
           LIGHT_CAND: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') && !inputs.full-ci-on-dev-push }}
         run: |
@@ -386,6 +405,10 @@ jobs:
           else
             PY=$F_PY; DK=$F_DOCKER; FR=$F_FRONT; CI=$F_CI; RISKY=${F_RISKY:-false}
           fi
+          FULLCI=${F_FULLCI:-false}
+          # Stufe D: full-ci-paths ⇒ volle Code-Lanes (Test-Matrix + Build + Frontend),
+          # aber KEINE Gate-Haertung und Diaet unveraendert — das ist der Unterschied zu risky.
+          if [ "$FULLCI" = "true" ]; then PY=true; DK=true; FR=true; fi
           if [ "$MAIN_PUSH" = "true" ]; then PY=true; DK=true; FR=true; CI=true; fi
           # Risky ⇒ volle Code-Lanes (PY/DK/FR): risky schaltete bisher nur die Diät aus
           # und machte Gates blocking — test-matrix/docker-build blieben filtergesteuert.
@@ -399,7 +422,7 @@ jobs:
           [ "$RISKY" = "true" ] && echo "::notice::⚠️ risky-Pfad berührt — CI-Diät aus, harte Gates aktiv (property/hadolint/bandit blocking)"
           {
             echo "python=$PY"; echo "docker=$DK"; echo "frontend=$FR"; echo "ci=$CI"
-            echo "any_code=$ANY"; echo "risky=$RISKY"; echo "light=$LIGHT"
+            echo "any_code=$ANY"; echo "risky=$RISKY"; echo "fullci=$FULLCI"; echo "light=$LIGHT"
           } >> "$GITHUB_OUTPUT"
 
       # 🔬 TIA-observe (Lane C, OBSERVE-ONLY — deselektiert NICHTS): berechnet, welche
@@ -990,7 +1013,35 @@ jobs:
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as s:
               s.write("\n".join(lines) + "\n")
           print("\n".join(lines))
+          # Stufe E: maschinenlesbarer Verdict fuer den TIA-Ledger in pipeline-analytics.
+          # Vollstaendigkeit (Codex-Fund E1): fehlt ein Shard-Report oder ist einer unlesbar,
+          # koennte genau dort der uebersehene Fehler liegen ⇒ complete=false, Ledger ignoriert.
+          try:
+              rep = json.load(open("flake-report.json", encoding="utf-8"))
+          except Exception:
+              rep = {}
+          missing = rep.get("shards_missing", []); perr = int(rep.get("parse_errors", 0) or 0)
+          reported = rep.get("shards_reported", [])
+          complete = bool(reported) and not missing and perr == 0
+          sel = set(tia.get("selected_tests", []))
+          failed_files = sorted({n.split("::")[0] for n in failed})
+          json.dump({
+              "mode": tia.get("mode"), "reason": tia.get("reason", ""),
+              "complete": complete, "shards_missing": missing, "parse_errors": perr,
+              "changed": len(tia.get("changed", [])), "selected": sorted(sel),
+              "failed_files": failed_files,
+              "missed": sorted(set(failed_files) - sel) if tia.get("mode") == "selected" else [],
+          }, open("tia-verdict.json", "w", encoding="utf-8"), indent=2)
           PY
+      - name: Upload TIA verdict (ledger source)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        continue-on-error: true
+        with:
+          name: tia-verdict
+          path: tia-verdict.json
+          retention-days: 90
+          if-no-files-found: ignore
 
   property-tests:
     name: "🔬 Property Tests"
@@ -1183,6 +1234,7 @@ jobs:
       context: ${{ inputs.docker-context }}
       sign-image: ${{ inputs.sign-image }}
       platforms: ${{ inputs.multi-arch && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
+      allow-multiarch-rebuild: ${{ inputs.allow-multiarch-rebuild }}
       image-size-limit-mb: ${{ inputs.image-size-limit-mb }}
       runner-label: ${{ inputs.runner-label }}
       gated-promotion: ${{ inputs.gated-promotion }}
@@ -1206,13 +1258,21 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
-      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c  # v4.2.0
       - name: GHCR login
         uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0  # v4.4.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install crane (pinned, sha256-verified)
+        env:
+          CRANE_VERSION: v0.22.0
+          CRANE_SHA256: edb74d53fad9a596860f59d1c5d04a43dfb5f441dc71f57060dd0bf39483c833
+        run: |
+          curl -sSfL "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz" -o "$RUNNER_TEMP/crane.tgz"
+          echo "${CRANE_SHA256}  $RUNNER_TEMP/crane.tgz" | sha256sum -c --quiet - || { echo "::error::crane checksum mismatch"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/crane-bin" && tar xz -C "$RUNNER_TEMP/crane-bin" -f "$RUNNER_TEMP/crane.tgz" crane
+          echo "$RUNNER_TEMP/crane-bin" >> "$GITHUB_PATH"
       - uses: adza-group/shared-workflows/.github/actions/health-check@v1
         id: staging-check
         continue-on-error: true
@@ -1230,11 +1290,13 @@ jobs:
           IMAGE: ${{ inputs.image-name != '' && inputs.image-name || format('ghcr.io/adza-group/{0}', inputs.app-name) }}
         run: |
           echo "::warning::staging unhealthy — attempting rollback :staging-previous -> :staging"
-          if docker buildx imagetools inspect "${IMAGE}:staging-previous" >/dev/null 2>&1; then
-            docker buildx imagetools create --tag "${IMAGE}:staging" "${IMAGE}:staging-previous"
-            echo "::warning::rollback applied — watchtower will re-deploy :staging-previous on next poll"
-          else
+          if SRC=$(crane digest "${IMAGE}:staging-previous" 2>/tmp/crane.err); then
+            crane tag "${IMAGE}@${SRC}" staging
+            echo "::warning::rollback applied (${SRC}) — watchtower will re-deploy :staging-previous on next poll"
+          elif grep -qiE 'MANIFEST_UNKNOWN|manifest unknown|NAME_UNKNOWN' /tmp/crane.err; then
             echo "::warning::no :staging-previous tag found — rollback skipped"
+          else
+            echo "::error::crane digest :staging-previous failed (registry/auth?) — rollback NOT attempted, backup may exist"; cat /tmp/crane.err
           fi
 
       - name: Fail on staging unhealthy
@@ -1275,13 +1337,21 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c  # v4.2.0
       - name: GHCR login
         uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0  # v4.4.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install crane (pinned, sha256-verified)
+        env:
+          CRANE_VERSION: v0.22.0
+          CRANE_SHA256: edb74d53fad9a596860f59d1c5d04a43dfb5f441dc71f57060dd0bf39483c833
+        run: |
+          curl -sSfL "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz" -o "$RUNNER_TEMP/crane.tgz"
+          echo "${CRANE_SHA256}  $RUNNER_TEMP/crane.tgz" | sha256sum -c --quiet - || { echo "::error::crane checksum mismatch"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/crane-bin" && tar xz -C "$RUNNER_TEMP/crane-bin" -f "$RUNNER_TEMP/crane.tgz" crane
+          echo "$RUNNER_TEMP/crane-bin" >> "$GITHUB_PATH"
       # Audit 2026-09-03 (Fund 6): kein continue-on-error — ein fehlgeschlagenes Backup
       # blockt die Promotion, sonst rollt verify-prod spaeter auf ein veraltetes :previous.
       # "Tag fehlt" (erster gated Run) wird explizit von "inspect fehlgeschlagen" getrennt.
@@ -1289,20 +1359,16 @@ jobs:
         env:
           IMAGE: ${{ inputs.image-name != '' && inputs.image-name || format('ghcr.io/adza-group/{0}', inputs.app-name) }}
         run: |
-          set +e
-          OUT=$(docker buildx imagetools inspect "${IMAGE}:latest" 2>&1); RC=$?
-          set -e
-          if [ "$RC" -eq 0 ]; then
-            docker buildx imagetools create --tag "${IMAGE}:previous" "${IMAGE}:latest"
-            echo "::notice::backed up :latest -> :previous"
-          elif printf '%s' "$OUT" | grep -qiE 'manifest unknown|MANIFEST_UNKNOWN|no such manifest' \
-               || printf '%s' "$OUT" | grep -qF "${IMAGE}:latest: not found"; then
-            # NUR Registry-404 — generisches "not found" traf auch Credential-Helper-Fehler.
-            echo "::notice::no existing :latest to back up (first gated run)"
-          else
-            echo "::error::imagetools inspect ${IMAGE}:latest failed (rc=$RC) — Backup unklar, Promotion geblockt"; printf '%s\n' "$OUT"; exit 1
+          if ! SRC=$(crane digest "${IMAGE}:latest" 2>/tmp/crane.err); then
+            if grep -qiE 'MANIFEST_UNKNOWN|manifest unknown|NAME_UNKNOWN' /tmp/crane.err; then
+              echo "::notice::no existing :latest to back up (first gated run)"; exit 0
+            fi
+            echo "::error::crane digest ${IMAGE}:latest failed — Backup unklar, Promotion geblockt"; cat /tmp/crane.err; exit 1
           fi
-      - name: "Promote :candidate -> :latest"
+          crane tag "${IMAGE}@${SRC}" previous
+          [ "$(crane digest "${IMAGE}:previous")" = "$SRC" ] || { echo "::error::backup :previous digest mismatch"; exit 1; }
+          echo "::notice::backed up :latest -> :previous (${SRC})"
+      - name: "Promote :candidate -> :latest (byte-identical via crane)"
         env:
           IMAGE: ${{ inputs.image-name != '' && inputs.image-name || format('ghcr.io/adza-group/{0}', inputs.app-name) }}
           CANDIDATE: ${{ needs.docker-build.outputs.candidate-tag }}
@@ -1312,8 +1378,18 @@ jobs:
             CANDIDATE="${IMAGE}:candidate-${SHA}"
             echo "::notice::candidate-tag output empty — reconstructed ${CANDIDATE}"
           fi
-          docker buildx imagetools create --tag "${IMAGE}:latest" "$CANDIDATE"
-          echo "::notice::promoted ${CANDIDATE} -> ${IMAGE}:latest — watchtower deploys prod on next poll"
+          SRC=$(crane digest "$CANDIDATE")
+          # Digest-Stabilitaet HART an einem nicht deployenden Tag beweisen (Codex R1-B1),
+          # danach :latest als LETZTE Mutation mit Soft-Check — ein roter Promote-Job hat
+          # dann nie :latest bewegt (Registry-Grundunsicherheit bleibt, s. docker-build).
+          crane tag "${IMAGE}@${SRC}" promote-verify
+          PV=$(crane digest "${IMAGE}:promote-verify")
+          [ "$PV" = "$SRC" ] || { echo "::error::promote-verify resolved to ${PV}, expected ${SRC} — :latest NOT touched"; exit 1; }
+          echo "digest=$SRC" >> "$GITHUB_OUTPUT"
+          crane tag "${IMAGE}@${SRC}" latest   # letzte mutierende Operation
+          crane digest "${IMAGE}:latest" 2>/dev/null | grep -qx "$SRC" \
+            || echo "::warning::post-check of :latest inconclusive (tag was set; verify manually if unsure)"
+          echo "::notice::promoted ${CANDIDATE} (${SRC}) -> ${IMAGE}:latest — watchtower deploys prod on next poll"
 
   verify-prod:
     name: "✅ Verify Prod"
@@ -1332,13 +1408,21 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
-      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c  # v4.2.0
       - name: GHCR login
         uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0  # v4.4.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install crane (pinned, sha256-verified)
+        env:
+          CRANE_VERSION: v0.22.0
+          CRANE_SHA256: edb74d53fad9a596860f59d1c5d04a43dfb5f441dc71f57060dd0bf39483c833
+        run: |
+          curl -sSfL "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz" -o "$RUNNER_TEMP/crane.tgz"
+          echo "${CRANE_SHA256}  $RUNNER_TEMP/crane.tgz" | sha256sum -c --quiet - || { echo "::error::crane checksum mismatch"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/crane-bin" && tar xz -C "$RUNNER_TEMP/crane-bin" -f "$RUNNER_TEMP/crane.tgz" crane
+          echo "$RUNNER_TEMP/crane-bin" >> "$GITHUB_PATH"
       - uses: adza-group/shared-workflows/.github/actions/health-check@v1
         id: prod-check
         continue-on-error: true
@@ -1355,11 +1439,13 @@ jobs:
           IMAGE: ${{ inputs.image-name != '' && inputs.image-name || format('ghcr.io/adza-group/{0}', inputs.app-name) }}
         run: |
           echo "::warning::prod unhealthy — attempting rollback :previous → :latest"
-          if docker buildx imagetools inspect "${IMAGE}:previous" >/dev/null 2>&1; then
-            docker buildx imagetools create --tag "${IMAGE}:latest" "${IMAGE}:previous"
-            echo "::warning::rollback applied — watchtower will re-deploy :previous on next poll"
-          else
+          if SRC=$(crane digest "${IMAGE}:previous" 2>/tmp/crane.err); then
+            crane tag "${IMAGE}@${SRC}" latest
+            echo "::warning::rollback applied (${SRC}) — watchtower will re-deploy :previous on next poll"
+          elif grep -qiE 'MANIFEST_UNKNOWN|manifest unknown|NAME_UNKNOWN' /tmp/crane.err; then
             echo "::warning::no :previous tag found — rollback skipped"
+          else
+            echo "::error::crane digest :previous failed (registry/auth?) — rollback NOT attempted, backup may exist"; cat /tmp/crane.err
           fi
 
       - name: Open incident issue on failure

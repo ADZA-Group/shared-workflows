@@ -1,0 +1,198 @@
+# ═══════════════════════════════════════════════════════════════
+# Release @v1 — autonom, aber nur nach hermetischem Kandidaten-Beweis (Stufe A, 2026-09-03)
+#
+# Ablauf (scripts/release-v1.sh <sha> vX.Y.Z erzeugt den Kandidaten-Branch):
+#   1. Branch `release-vX.Y.Z` = <sha> + EIN Commit, der alle internen Refs
+#      `adza-group/shared-workflows/...@v1` auf `@<sha>` umschreibt und `.release-source`
+#      (sha + version) ablegt. Damit testen die Smokes den KANDIDATEN — nicht das alte @v1
+#      (Henne-Ei der frueheren Smokes: Composites/Sub-Reusables floateten immer auf @v1).
+#   2. Dieser Workflow laeuft auf dem Branch: prep (Konsistenz) → Smokes (Orchestrator,
+#      Docker-Push ubuntu + self-hosted, Promotion) → release (Tags) → cleanup (Branch weg).
+#   3. Getaggt wird der ORIGINAL-SHA (dessen Dateien sagen `@v1` — nach dem Move ist @v1 = sha,
+#      also dieselbe Semantik wie im Kandidaten). Vertrauensmodell: wer dev schreiben darf,
+#      darf releasen (Ruleset-Bypass fuer die Actions-Integration; Codex: groesser als nur
+#      release.yml, deshalb halten alle anderen Workflows job-lokal minimale Permissions).
+# ═══════════════════════════════════════════════════════════════
+
+name: "🏷️ Release @v1"
+
+on:
+  push:
+    branches: ["release-*"]
+
+# Nie zwei Releases parallel — der v1-Move ist eine geteilte Ressource.
+concurrency:
+  group: v1-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  prep:
+    name: "🧾 Candidate check"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.src.outputs.sha }}
+      version: ${{ steps.src.outputs.version }}
+      old_v1: ${{ steps.src.outputs.old_v1 }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          fetch-depth: 0
+      - name: Read + verify .release-source
+        id: src
+        run: |
+          [ -f .release-source ] || { echo "::error::.release-source fehlt — Branch nicht per scripts/release-v1.sh erzeugt"; exit 1; }
+          SHA=$(sed -n 's/^sha=//p' .release-source); VERSION=$(sed -n 's/^version=//p' .release-source)
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::ungueltiger sha in .release-source: '$SHA'"; exit 1; }
+          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::ungueltige version: '$VERSION'"; exit 1; }
+          [[ "$GITHUB_REF_NAME" == "release-${VERSION}" ]] || { echo "::error::Branch $GITHUB_REF_NAME passt nicht zu version $VERSION"; exit 1; }
+          # Kandidat = Quelle + genau ein Rewrite-Commit
+          PARENT=$(git rev-parse HEAD^)
+          [ "$PARENT" = "$SHA" ] || { echo "::error::HEAD^ ($PARENT) != sha ($SHA) — Kandidat ist nicht 'Quelle + 1 Rewrite-Commit'"; exit 1; }
+          git cat-file -e "${SHA}^{commit}" || { echo "::error::sha nicht im Repo"; exit 1; }
+          # Rewrite vollstaendig + auf DIESEN Branch (Codex A1: Refs auf den Original-SHA waeren
+          # ab der 2. Ebene wieder @v1): kein `@v1` vor Whitespace/Zeilenende mehr, und
+          # mindestens ein Ref zeigt auf @<branch>. Ausgefuehrter Commit muss Branch-HEAD sein.
+          if grep -rEn 'adza-group/shared-workflows/[^@[:space:]]+@v1([[:space:]]|$)' .github/ ; then
+            echo "::error::floatende @v1-Refs uebrig — Kandidat ist nicht hermetisch"; exit 1
+          fi
+          N=$(grep -rhoE "adza-group/shared-workflows/[^@[:space:]]+@${GITHUB_REF_NAME}([[:space:]]|\$)" .github/ | wc -l)
+          [ "$N" -gt 0 ] || { echo "::error::keine internen Refs auf @${GITHUB_REF_NAME} — falscher Rewrite"; exit 1; }
+          [ "$(git rev-parse "origin/${GITHUB_REF_NAME}")" = "$GITHUB_SHA" ] || { echo "::error::ausgefuehrter Commit ist nicht HEAD von ${GITHUB_REF_NAME}"; exit 1; }
+          echo "internal refs on @${GITHUB_REF_NAME}: $N"
+          # Version-Tag frei, v1 darf nur vorwaerts (alter v1-Commit muss im Kandidaten enthalten sein)
+          git ls-remote --exit-code origin "refs/tags/${VERSION}" >/dev/null 2>&1 && { echo "::error::Tag ${VERSION} existiert bereits"; exit 1; }
+          OLD=$(git ls-remote origin 'refs/tags/v1^{}' | cut -f1)
+          if [ -n "$OLD" ] && ! git merge-base --is-ancestor "$OLD" "$SHA"; then
+            echo "::error::Verlust-Check: aktuelles @v1 ($OLD) ist kein Vorfahr von $SHA"; exit 1
+          fi
+          { echo "sha=$SHA"; echo "version=$VERSION"; echo "old_v1=${OLD:-none}"; } >> "$GITHUB_OUTPUT"
+          echo "candidate ok: $VERSION -> $SHA (old v1: ${OLD:-none})"
+
+  smoke-ci:
+    name: "🧪 Smoke — Orchestrator (candidate refs)"
+    needs: prep
+    permissions:   # exakt der Block von _smoke-ci.yml — ein Callee darf nie mehr beanspruchen als der Caller gewaehrt (Codex A-R2)
+      actions: read
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      security-events: write
+      checks: write
+      issues: write
+      pull-requests: write
+    uses: ./.github/workflows/_smoke-ci.yml
+    secrets: inherit
+
+  smoke-push-ubuntu:
+    name: "🧪 Smoke — Docker push (ubuntu)"
+    needs: prep
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/_smoke-docker-build.yml
+    with:
+      push: true
+      runner-label: '["ubuntu-latest"]'
+    secrets: inherit
+
+  smoke-push-selfhosted:
+    name: "🧪 Smoke — Docker push (self-hosted, cosign cache)"
+    needs: prep
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/_smoke-docker-build.yml
+    with:
+      push: true
+      runner-label: '["self-hosted","linux","proxmox"]'
+    secrets: inherit
+
+  smoke-promotion:
+    name: "🧪 Smoke — Promotion (crane)"
+    needs: prep
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/_smoke-promotion.yml
+    secrets: inherit
+
+  release:
+    name: "🏷️ Tag ${{ needs.prep.outputs.version }} + move @v1"
+    needs: [prep, smoke-ci, smoke-push-ubuntu, smoke-push-selfhosted, smoke-promotion]
+    # Nur bei ECHTEM Erfolg aller Smokes (kein always(), kein skipped-Durchwinken).
+    if: ${{ success() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      # Token fuer den Tag-Push: Secret RELEASE_TOKEN (fine-grained PAT eines Repo-Admins,
+      # contents: write) bekommt den Ruleset-Bypass "RepositoryRole admin" von protect-v1-tag.
+      # Fehlt das Secret, faellt der Push auf den Workflow-Token zurueck — den laesst das
+      # Ruleset (update/non_fast_forward) NICHT durch: GitHub bietet fuer die Actions-
+      # Integration keinen Bypass (422 "must be part of the ruleset source"), Deploy-Keys
+      # sind org-seitig deaktiviert. Dann endet der Job hier mit klarer Meldung, Tags bleiben
+      # unberuehrt, der Kandidaten-Branch bleibt stehen.
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
+      - name: Race-Recheck + tag + move v1 + post-verify
+        env:
+          SHA: ${{ needs.prep.outputs.sha }}
+          VERSION: ${{ needs.prep.outputs.version }}
+          OLD_V1: ${{ needs.prep.outputs.old_v1 }}
+        run: |
+          NOW=$(git ls-remote origin 'refs/tags/v1^{}' | cut -f1); NOW=${NOW:-none}
+          [ "$NOW" = "$OLD_V1" ] || { echo "::error::@v1 wurde seit prep bewegt ($OLD_V1 -> $NOW) — Parallel-Release. Abbruch."; exit 1; }
+          git ls-remote --exit-code origin "refs/tags/${VERSION}" >/dev/null 2>&1 && { echo "::error::Tag ${VERSION} inzwischen vergeben"; exit 1; }
+          [ "$(git ls-remote origin "refs/heads/${GITHUB_REF_NAME}" | cut -f1)" = "$GITHUB_SHA" ] || { echo "::error::Kandidaten-Branch wurde waehrend des Laufs veraendert"; exit 1; }
+          NAME=$(git log -1 --format='%an' "$SHA"); EMAIL=$(git log -1 --format='%ae' "$SHA")
+          git -c user.name="$NAME" -c user.email="$EMAIL" tag -a "$VERSION" -m "Release $VERSION" "$SHA"
+          git -c user.name="$NAME" -c user.email="$EMAIL" tag -f -a v1 -m "v1 -> $VERSION" "$SHA"
+          # ATOMAR (Codex A2): Version-Tag und v1-Move zusammen oder gar nicht — Force nur
+          # auf v1 (Refspec mit +), nie global, damit ein zwischenzeitlich angelegter
+          # Version-Tag nicht ueberschrieben werden kann.
+          if ! git push --atomic origin "refs/tags/${VERSION}:refs/tags/${VERSION}" "+refs/tags/v1:refs/tags/v1"; then
+            echo "::error::Tag-Push abgelehnt (Ruleset protect-v1-tag: update/non_fast_forward). Beide Tags unveraendert. Loesung: Repo-Secret RELEASE_TOKEN = fine-grained PAT eines Admins (contents: write) → Admin-Bypass, Job laeuft autonom. Manuell: git tag -a ${VERSION} ${SHA} && git tag -f -a v1 ${SHA} && git push --atomic origin refs/tags/${VERSION} +refs/tags/v1"
+            exit 1
+          fi
+          FINAL=$(git ls-remote origin 'refs/tags/v1^{}' | cut -f1)
+          [ "$FINAL" = "$SHA" ] || { echo "::error::Post-Verify: remote @v1 = ${FINAL:-leer}, erwartet $SHA"; exit 1; }
+          {
+            echo "## 🏷️ Release $VERSION"
+            echo "| | |"; echo "|---|---|"
+            echo "| @v1 | \`${OLD_V1}\` → \`${SHA}\` |"
+            echo "| Tag | \`${VERSION}\` (annotiert) |"
+            echo "| Smokes | Orchestrator · Docker-Push ubuntu · Docker-Push self-hosted · Promotion — alle gruen auf Kandidaten-Refs |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "released: @v1 = $SHA ($VERSION)"
+
+  cleanup:
+    name: "🧹 Candidate branch"
+    needs: [prep, release]
+    if: ${{ always() && needs.prep.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - name: Delete candidate branch (after success; keep on failure for forensics)
+        env:
+          RESULT: ${{ needs.release.result }}
+        run: |
+          if [ "$RESULT" = "success" ]; then
+            git push origin --delete "$GITHUB_REF_NAME" && echo "deleted $GITHUB_REF_NAME"
+          else
+            echo "::warning::release result=$RESULT — Kandidaten-Branch $GITHUB_REF_NAME bleibt zur Analyse stehen (manuell loeschen)"
+          fi

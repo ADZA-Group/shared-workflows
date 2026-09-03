@@ -39,6 +39,7 @@ jobs:
     permissions:
       actions: read            # gh api workflows + runs
     steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
       - name: Fetch workflow runs
         id: data
         env:
@@ -117,7 +118,7 @@ jobs:
           DAYS: ${{ inputs.days }}
         run: |
           python3 - <<'PY'
-          import collections, datetime, json, os, shutil, subprocess, tempfile
+          import collections, datetime, glob, json, os, shutil, subprocess, tempfile
 
           def gh_json(path, *args):
               out = subprocess.check_output(["gh", "api", path, *args], text=True, encoding="utf-8")
@@ -167,6 +168,52 @@ jobs:
                   out.append("|------|-----------:|-------------:|")
                   for nid, c in flaky_runs.most_common(15):
                       out.append(f"| `{nid}` | {c} | {flaky_reruns[nid]} |")
+
+              # ── TIA-Ledger (Stufe E, Audit 2026-09-03): observe-only auswerten, NIE aktivieren.
+              # Nur Runs mit tia-verdict-Artefakt zaehlen; fehlende = "nicht messbar", nie "korrekt".
+              total_tests = len(glob.glob("tests/**/test_*.py", recursive=True)) + len(glob.glob("tests/**/*_test.py", recursive=True))
+              evaluable = with_fail = missed_runs = incomplete = 0
+              missed_files = collections.Counter()
+              saved = []
+              for r in runs[:max_runs]:
+                  arts = gh_json(f"repos/{repo}/actions/runs/{r['id']}/artifacts?per_page=100").get("artifacts", [])
+                  if not any(a["name"] == "tia-verdict" and not a["expired"] for a in arts):
+                      continue
+                  dd = tempfile.mkdtemp()
+                  try:
+                      subprocess.run(["gh", "run", "download", str(r["id"]), "-n", "tia-verdict", "-D", dd, "-R", repo], check=True, capture_output=True)
+                      with open(os.path.join(dd, "tia-verdict.json"), encoding="utf-8") as fh:
+                          v = json.load(fh)
+                  except Exception as e:
+                      print(f"::warning::tia ledger skip run {r['id']}: {e}")
+                      continue
+                  finally:
+                      shutil.rmtree(dd, ignore_errors=True)
+                  if v.get("mode") != "selected":
+                      continue
+                  if not v.get("complete"):
+                      incomplete += 1   # fehlender/unlesbarer Shard ⇒ nicht messbar, nie "korrekt"
+                      continue
+                  evaluable += 1
+                  if v.get("failed_files"):
+                      with_fail += 1
+                      if v.get("missed"):
+                          missed_runs += 1
+                          for m in v["missed"]:
+                              missed_files[m] += 1
+                  if total_tests:
+                      saved.append(max(0.0, 1 - len(v.get("selected", [])) / total_tests))
+              out.append("")
+              out.append(f"### 🔬 TIA-Ledger (observe-only, {days}d)")
+              out.append(f"- Runs mit Auswahl-Prognose: **{evaluable}** (dazu {incomplete} unvollstaendig = nicht messbar) · davon mit echten Testfehlern: {with_fail} · Prognose haette rote Datei(en) VERPASST: **{missed_runs}**")
+              if with_fail:
+                  out.append(f"- False-Negative-Rate (Runs): **{100 * missed_runs // with_fail}%** — Aktivierung nur bei 0% ueber ein langes Fenster")
+              else:
+                  out.append("- False-Negative-Rate: nicht messbar (kein Run mit Testfehlern im Fenster)")
+              if saved:
+                  out.append(f"- Prognostizierte Einsparung (Testdateien): Ø **{100 * sum(saved) / len(saved):.0f}%** von {total_tests} Testdateien")
+              for f, c in missed_files.most_common(10):
+                  out.append(f"  - verpasst: `{f}` ({c}×)")
 
               def srate(rs):
                   rs = [r for r in rs if r.get("conclusion") is not None]  # exclude in-progress
