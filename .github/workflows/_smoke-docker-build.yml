@@ -12,7 +12,7 @@ on:
         type: boolean
         default: false
       runner-label:
-        description: "JSON-Array; self-hosted testet den cosign-Cache-Pfad"
+        description: "JSON-Array. ACHTUNG: self-hosted wird aus diesem PUBLIC Repo NIE bedient (Runner-Group allows_public_repositories=false, GEMESSEN 03.09.) — Job haengt endlos in der Queue."
         type: string
         default: '["ubuntu-latest"]'
   workflow_call:   # Stufe A: vom Release-Workflow auf dem Kandidaten-Branch aufgerufen

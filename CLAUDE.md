@@ -19,6 +19,11 @@
 > Actions-Integration ⇒ 422, Deploy-Keys org-seitig deaktiviert ⇒ ohne Repo-Secret `RELEASE_TOKEN` (fine-grained PAT eines
 > Admins, contents:write → Checkout-Token → Admin-Bypass) endet der Job am Tag-Push mit klarer Meldung, Tags unberührt, Branch
 > bleibt; `gh run rerun --failed` nach Secret-Anlage genügt. Classifier blockte das Abschwächen des Rulesets — Azad-Entscheid.
+> **Runner-Realität GEMESSEN:** Org-Runner-Group „Default" `allows_public_repositories=false` ⇒ self-hosted Jobs aus diesem
+> PUBLIC Repo hängen endlos (Runs 33754408340, 33757764577) — bewusst so belassen (Fork-PR-Risiko); kein self-hosted-Smoke
+> im Release-Gate, cosign-Cache-Pfad wird nach Release per Dispatch-Run einer privaten App gemessen.
+> **Release-Smoke = volle CI:** `_smoke-ci` setzt `full-ci-on-dev-push: true`, sonst liefe der Kandidaten-Push light (Security
+> skipped, GEMESSEN Run 33757764577).
 > **B** crane v0.22.0 (sha256 gepinnt, inline in docker-build/promote/verify/smoke-promotion — Composite wäre Henne-Ei):
 > `crane digest`/`crane tag` byte-identisch; Backups + Promote (promote-verify-Tag hart, :latest zuletzt) + Rollbacks
 > (MANIFEST_UNKNOWN/NAME_UNKNOWN ≠ Fehler); `imagetools create` NIRGENDS mehr; multi-arch fail-closed ohne

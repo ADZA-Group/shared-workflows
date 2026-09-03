@@ -102,20 +102,11 @@ jobs:
       runner-label: '["ubuntu-latest"]'
     secrets: inherit
 
-  smoke-push-selfhosted:
-    name: "🧪 Smoke — Docker push (self-hosted, cosign cache)"
-    needs: prep
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-      attestations: write
-    uses: ./.github/workflows/_smoke-docker-build.yml
-    with:
-      push: true
-      runner-label: '["self-hosted","linux","proxmox"]'
-    secrets: inherit
-
+  # KEIN self-hosted Smoke hier: die Org-Runner-Group "Default" hat
+  # allows_public_repositories=false (GEMESSEN 03.09., Run 33757764577 haengt endlos in
+  # der Queue) — self-hosted Jobs aus diesem PUBLIC Repo werden nie bedient, und das
+  # bleibt bewusst so (self-hosted + public = Fork-PR-Risiko). Der self-hosted-Pfad
+  # (cosign-Cache) wird nach dem Release per Dispatch-Run einer privaten App gemessen.
   smoke-promotion:
     name: "🧪 Smoke — Promotion (crane)"
     needs: prep
@@ -127,7 +118,7 @@ jobs:
 
   release:
     name: "🏷️ Tag ${{ needs.prep.outputs.version }} + move @v1"
-    needs: [prep, smoke-ci, smoke-push-ubuntu, smoke-push-selfhosted, smoke-promotion]
+    needs: [prep, smoke-ci, smoke-push-ubuntu, smoke-promotion]
     # Nur bei ECHTEM Erfolg aller Smokes (kein always(), kein skipped-Durchwinken).
     if: ${{ success() }}
     runs-on: ubuntu-latest
@@ -173,7 +164,7 @@ jobs:
             echo "| | |"; echo "|---|---|"
             echo "| @v1 | \`${OLD_V1}\` → \`${SHA}\` |"
             echo "| Tag | \`${VERSION}\` (annotiert) |"
-            echo "| Smokes | Orchestrator · Docker-Push ubuntu · Docker-Push self-hosted · Promotion — alle gruen auf Kandidaten-Refs |"
+            echo "| Smokes | Orchestrator (volle CI) · Docker-Push ubuntu · Promotion (crane) — alle gruen auf Kandidaten-Refs |"
           } >> "$GITHUB_STEP_SUMMARY"
           echo "released: @v1 = $SHA ($VERSION)"
 
