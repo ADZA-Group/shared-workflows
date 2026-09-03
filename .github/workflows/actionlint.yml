@@ -8,9 +8,9 @@ name: actionlint
 on:
   push:
     branches: [dev]
-    paths: [".github/workflows/**"]
+    paths: [".github/workflows/**", "scripts/gate_matrix.py"]
   pull_request:
-    paths: [".github/workflows/**"]
+    paths: [".github/workflows/**", "scripts/gate_matrix.py"]
 
 permissions:
   contents: read
@@ -28,3 +28,10 @@ jobs:
           # verwaiste needs:, Expressions) — Shell-Stil-Kosmetik ist kein
           # Gate-Thema und haengt sonst am zufaellig vorinstallierten shellcheck.
           ./actionlint -color -shellcheck= -pyflakes=
+      # Deploy-Gate-Invariante (Audit 2026-09-03): liest den echten docker-build-
+      # if-Ausdruck aus reusable-ci.yml und beweist per Brute-Force, dass kein
+      # hartes Gate bei failure/cancelled einen Push zulaesst. Exit 1 = Verstoss.
+      - name: Deploy-gate matrix (scripts/gate_matrix.py)
+        run: |
+          python3 -c "import yaml" 2>/dev/null || pip install --quiet pyyaml
+          python3 scripts/gate_matrix.py

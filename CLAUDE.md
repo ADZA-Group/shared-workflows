@@ -3,6 +3,25 @@
 > **Für Claude (neue Session):** Dies ist der Wiederaufnahme-Handoff für die Unified-CI-Initiative.
 > Stand **2026-07-21**, branch `dev`. **Released: floating `@v1` = `v1.10.1` (commit `c98ad45`, ls-remote-verifiziert).**
 >
+> **🔬 2026-09-03 FLEET-CI-AUDIT (Pair Claude+Codex, 3 Runden) + FIX A+X auf dev — wartet auf User-Release (`@v1` = v1.10.6 = 58fb669):**
+> Vollbericht: Vault `45-reports/2026-09-03-ci-audit.md` + Windows-Memory `ci-audit-2026-09-03`. **P1 A:** `property-tests`
+> (BLOCKING bei risky) und `license-check` (BLOCKING main/tags) standen NICHT in `docker-build.needs` → Rot färbte nur den
+> Run, Image war gepusht + Watchtower hatte es gezogen. **P2 X (Codex):** harte Gates prüften `!= 'failure'` → `cancelled`
+> (Teil-Cancel/Runner-Shutdown) ließ den Build unter `always()` durch. **Fix:** needs += beide; harte Gates auf
+> `success||skipped`; property-tests/lint-dockerfile nur bei risky hart (`|| risky != 'true'`), license-check nur
+> main/tags (`|| !main`) — advisory-Kontexte werden NICHT strenger. **Invariante als Gate:** `scripts/gate_matrix.py`
+> liest den ECHTEN docker-build-`if:`+`needs:` (Mini-Übersetzer GH-Expression→Python), Brute-Force je hartes Gate ∈
+> {failure,cancelled} × andere ∈ {success,skipped} × 32 changes × 4 Events × 3 Refs + Happy-Path/skipped-Positivkontrollen
+> + Subset-Check „jedes harte Gate steht in needs"; läuft als 2. Step in `actionlint.yml` (paths inkl. Skript). GEMESSEN:
+> Fix `checked=376832 violations=0`; Original-Datei rot (Subset-Fehler; ohne Subset-Check 14112 cancelled-Verstöße).
+> Weitere Audit-P2 (noch NICHT gefixt): Diff-Coverage auf main vakuum (HEAD==origin/main) · weekly-cleanup löscht rote
+> Runs → Analytics geschönt · gescanntes≠gepushtes Image · DAST `|| echo 0:0:0` · `:previous`-Backup CoE · curl-Downloads
+> ohne Hash · Caller-Inputs direkt in Shell (Defense-in-Depth) · kein Tag-Ruleset für v1. **Gemessen sauber:** „1/4 Runner
+> online" = `runner-controller.service`-Autoscaling auf 104 (12 GB RAM / 6 Kerne heute, nicht mehr 4 GB); buildx-gha-Cache
+> auf 104 billig (Import 1 s / Export 3 s). **Vorfall:** Fehlalarm „MitarbeiterApp gh pr merge --auto" aus 7 Wochen altem
+> Checkout — Caller-Audit NUR gegen Remote-Blob (`git hash-object` vs `gh api contents?ref=dev --jq .sha`).
+> **ANNAHME (unbewiesen, 1305 Jobs in 110 grünen Runs = 0 failure):** job-level `continue-on-error` ⇒ `needs.X.result == 'success'`.
+>
 > **🧠 2026-08-13 MAX-WELLE auf dev (Pair-Codex, wartet auf Release — ⚠️ RELEASE-PREP nötig, s.u.):**
 > Commits `76fe929..<tip>`: (1) **property-tests-Smoke-Rot GEFIXT** (Caller ohne requirements.txt → venv ohne
 > pytest → rc=127; Fix `install-coverage:"true"` = pytest via pytest-cov + pytest-timeout; bewiesen Run

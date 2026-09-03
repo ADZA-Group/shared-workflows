@@ -1119,7 +1119,7 @@ jobs:
 
   docker-build:
     name: "🐳 Build"
-    needs: [changes, lint-python, lint-dockerfile, test-matrix, security, coverage, e2e, branch-policy]
+    needs: [changes, lint-python, lint-dockerfile, test-matrix, security, coverage, e2e, branch-policy, property-tests, license-check]
     # HARD DEPLOY GATE (Audit 2026-07-16, P1): security + coverage gaten jetzt den
     # Build/Push. Vorher liefen sie nur PARALLEL — ein committetes Secret (gitleaks)
     # oder ein bandit-HIGH färbte den Run zwar rot, das Image ging aber trotzdem nach
@@ -1129,19 +1129,33 @@ jobs:
     # Sicher, weil security (any_code||ci) und docker-build (any_code||docker||ci)
     # dieselbe Envelope teilen: any_code = python||docker||frontend schliesst docker
     # ein → security kann nie skippen, während docker-build läuft (ausser bei light).
-    # coverage nutzt != 'failure' (skipped erlaubt: non-py / opt-out).
-    # lint-dockerfile: advisory ⇒ result=success (gated nicht); bei risky BLOCKING
-    # ⇒ echtes failure blockt den Build (Risk-Gating). license-check bleibt advisory.
+    #
+    # Audit 2026-09-03 (Funde A + X, Pair Claude+Codex, Beweis scripts/gate_matrix.py):
+    # (X) Harte Gates pruefen auf success||skipped statt != 'failure' — unter always()
+    #     liess `cancelled` (Teil-Cancel, Runner-Shutdown) den Build sonst durch.
+    # (A) property-tests (BLOCKING bei risky) und license-check (BLOCKING auf main/
+    #     tags) standen NICHT in needs: ihr Rot faerbte nur den Run, das Image war
+    #     laengst gepusht und Watchtower hatte es gezogen. Jetzt gaten sie genau in
+    #     dem Kontext, in dem sie hart sind; sonst bleiben sie advisory wie bisher
+    #     (`|| risky != 'true'` bzw. `|| !main`), damit dev-Pushes nicht strenger
+    #     werden. lint-dockerfile gleiches Muster (hart nur bei risky).
+    # Invariante laeuft als Gate in actionlint.yml: kein Push, wenn ein hartes Gate
+    # failure ODER cancelled ist — plus Happy-Path-Kontrolle gegen vakuum-gruen.
     if: >-
       ${{ always() &&
-      needs.lint-python.result != 'failure' &&
-      needs.lint-dockerfile.result != 'failure' &&
+      (needs.lint-python.result == 'success' || needs.lint-python.result == 'skipped') &&
+      (needs.lint-dockerfile.result == 'success' || needs.lint-dockerfile.result == 'skipped' ||
+       needs.changes.outputs.risky != 'true') &&
       (needs.security.result == 'success' ||
        (needs.security.result == 'skipped' && needs.changes.outputs.light == 'true')) &&
-      needs.coverage.result != 'failure' &&
-      needs.e2e.result != 'failure' &&
+      (needs.coverage.result == 'success' || needs.coverage.result == 'skipped') &&
+      (needs.e2e.result == 'success' || needs.e2e.result == 'skipped') &&
       (needs.branch-policy.result == 'success' || needs.branch-policy.result == 'skipped') &&
       (needs.test-matrix.result == 'success' || needs.test-matrix.result == 'skipped') &&
+      (needs.property-tests.result == 'success' || needs.property-tests.result == 'skipped' ||
+       needs.changes.outputs.risky != 'true') &&
+      (needs.license-check.result == 'success' || needs.license-check.result == 'skipped' ||
+       !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))) &&
       (needs.changes.outputs.any_code == 'true' || needs.changes.outputs.docker == 'true' || needs.changes.outputs.ci == 'true') }}
     permissions:
       contents: read
