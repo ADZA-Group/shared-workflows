@@ -31,6 +31,10 @@ jobs:
       test-shards: '[{"name":"fixture","paths":"tests/fixtures/app","cov":"tests/fixtures/app"}]'
       test-env: "{}"
       enable-push: false
+      # Release-Gate (Stufe A): auf dem Kandidaten-Branch ist das Event `push` auf einem
+      # Nicht-main-Branch ⇒ CI-Diaet ⇒ Security/Property SKIPPED (GEMESSEN Run 33757764577).
+      # Der Release-Smoke muss die Security-Lane mit Kandidaten-Refs beweisen ⇒ Diaet aus.
+      full-ci-on-dev-push: true
       dockerfile: tests/fixtures/docker/Dockerfile
       docker-context: tests/fixtures/docker
       image-name: ghcr.io/adza-group/smoke-fixture
