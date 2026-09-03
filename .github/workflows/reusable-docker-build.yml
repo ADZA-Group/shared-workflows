@@ -309,9 +309,9 @@ jobs:
           # Gegenprobe: Registry-Digest == das, was wir hochgeladen haben.
           docker buildx imagetools inspect "${IMAGE_NAME}@${DIGEST}" >/dev/null || { echo "::error::pushed digest ${DIGEST} not resolvable in registry"; exit 1; }
           # Retag-Reihenfolge (Codex-Fund R2-E1): erst alle NICHT deployenden Tags, der
-          # Deploy-Tag (:staging / :latest / :candidate-*) als GARANTIERT LETZTE mutierende
-          # Operation — ein roter Push-Job hat dann nie einen Deploy-Tag bewegt. Jeder Retag
-          # wird per inspect gegen den Push-Digest gegengemessen.
+          # Deploy-Tag (:staging / :latest / :candidate-*) als letzte mutierende Operation.
+          # Alle kontrollierbaren harten Pruefungen liegen davor; was bleibt, ist die
+          # Registry-Grundunsicherheit (s.u.), keine absolute Garantie.
           NORMAL=(); DEPLOY=()
           while IFS= read -r T; do
             [ -n "$T" ] || continue
