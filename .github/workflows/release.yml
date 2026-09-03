@@ -38,7 +38,7 @@ jobs:
       version: ${{ steps.src.outputs.version }}
       old_v1: ${{ steps.src.outputs.old_v1 }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
       - name: Read + verify .release-source
@@ -142,7 +142,7 @@ jobs:
       # Integration keinen Bypass (422 "must be part of the ruleset source"), Deploy-Keys
       # sind org-seitig deaktiviert. Dann endet der Job hier mit klarer Meldung, Tags bleiben
       # unberuehrt, der Kandidaten-Branch bleibt stehen.
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_TOKEN || github.token }}
@@ -186,7 +186,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Delete candidate branch (after success; keep on failure for forensics)
         env:
           RESULT: ${{ needs.release.result }}

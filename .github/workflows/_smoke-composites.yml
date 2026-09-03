@@ -14,7 +14,7 @@ jobs:
     runs-on: [self-hosted, linux, proxmox]
     timeout-minutes: 8
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Fixture requirements.txt
         run: printf 'flask==3.*\n' > requirements.txt
       - uses: ./.github/actions/setup-python-deps
@@ -32,7 +32,7 @@ jobs:
     runs-on: [self-hosted, linux, proxmox]
     timeout-minutes: 8
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Fixture project (pytest + a trivial test)
         run: |
           printf 'pytest==8.*\n' > requirements.txt
@@ -58,7 +58,7 @@ jobs:
     needs: run-pytest-shard
     timeout-minutes: 6
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Fixture (coverage tool + the source the data file references)
         run: |
           printf 'coverage[toml]\n' > requirements.txt
@@ -78,7 +78,7 @@ jobs:
     runs-on: [self-hosted, linux, proxmox]
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Fixture HTTP server with /health
         run: |
           mkdir -p _fix
@@ -107,7 +107,7 @@ jobs:
     runs-on: [self-hosted, linux, proxmox]
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Fixture compliant Dockerfile
         run: |
           cat > Dockerfile <<'DOCKER'
