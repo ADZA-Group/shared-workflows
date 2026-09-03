@@ -74,10 +74,16 @@ if [ "$DRY_RUN" != 1 ] && [ "$ASSUME_YES" != 1 ]; then
 fi
 
 # Kandidat in einem Wegwerf-Worktree bauen (der Checkout bleibt unberuehrt).
-WT="$(mktemp -d)"; trap 'git worktree remove --force "$WT" >/dev/null 2>&1 || true' EXIT
-git worktree add -q --detach "$WT" "$RELEASE_SHA"
+WT="$(mktemp -d)"
+# Git-Bash/Windows: MSYS_NO_PATHCONV=1 (oben, fuer refs/tags/v1^{}) verhindert die Pfad-
+# konvertierung — git bekaeme "/tmp/..." wörtlich und legt den Worktree woanders an als
+# `cd` hingeht (GEMESSEN 03.09.: "grep: .github: No such file"). Deshalb cygpath fuer git.
+WT_ARG="$WT"; command -v cygpath >/dev/null 2>&1 && WT_ARG="$(cygpath -m "$WT")"
+trap 'git worktree remove --force "$WT_ARG" >/dev/null 2>&1 || true' EXIT
+git worktree add -q --detach "$WT_ARG" "$RELEASE_SHA"
 (
   cd "$WT"
+  [ -d .github ] || { echo "❌ Worktree unvollstaendig ($WT) — Pfadkonvertierung?" >&2; exit 1; }
   # Nur die konkreten internen Refs umschreiben — nichts anderes im Repo. Pattern: `@v1`
   # NUR vor Whitespace/Zeilenende (exakte Pins wie `@v1.10.6` bleiben unberuehrt, Codex A3).
   grep -rlE 'adza-group/shared-workflows/[^@[:space:]]+@v1([[:space:]]|$)' .github | while read -r f; do
