@@ -7,7 +7,14 @@
 > Fleet-Beweis: rechnungsapp Run 33750934660 (Attempt 2 grün; Attempt 1 fiel im ALTEN zweiten buildx-Push an
 > „failed to fetch anonymous token … ghcr.io/token … 403" — genau der Schritt, den die Audit-Welle unten abschafft).
 >
-> **🤖 2026-09-03 „PERFEKT + AUTONOM"-WELLE (Stufen A–F, Pair Claude+Codex, Reihenfolge B→C→D→E→F→A; wartet auf Release v1.11.0):**
+> **🤖 2026-09-03 „PERFEKT + AUTONOM"-WELLE (Stufen A–F, Pair Claude+Codex, Reihenfolge B→C→D→E→F→A):**
+> **STAND ABENDS: Kandidat `release-v1.11.0` (Branch 00d14b1 = dev 61b1928 + Rewrite) — Release-Run 33762903054: prep + ALLE
+> Smokes GRÜN auf Kandidaten-Refs (Orchestrator volle CI inkl. Security-Lane mit SARIF-Steps, Docker-Push ubuntu, Promotion/crane);
+> Tag-Job ROT mit `GH013: Repository rule violations found for refs/tags/v1` (atomarer Push ⇒ auch v1.11.0 NICHT angelegt, @v1 =
+> 98d49c7 = v1.10.7 unverändert). Branch bleibt stehen. NÄCHSTER SCHRITT (Azad): fine-grained PAT (nur dieses Repo, Contents
+> read+write) als Secret `RELEASE_TOKEN` (`gh secret set RELEASE_TOKEN -R ADZA-Group/shared-workflows`), dann
+> `gh run rerun 33762903054 --failed` ⇒ @v1 = v1.11.0. DANACH (Agent): rechnungsapp-Caller `templates/static/translations` von
+> `risky-paths` nach `full-ci-paths`; Dispatch-Run rechnungsapp als Beweis fuer cosign-Cache auf 104; Vault/Memory nachziehen.**
 > **A Release-Workflow:** `scripts/release-v1.sh <sha> vX.Y.Z [--yes|--dry-run|--no-wait]` baut im Wegwerf-Worktree den
 > KANDIDATEN-Branch `release-vX.Y.Z` = sha + 1 Commit (alle internen Refs `@v1` → `@release-vX.Y.Z` — auf den BRANCH, nicht
 > den SHA, sonst floaten verschachtelte Refs ab Ebene 2 wieder auf @v1 [Codex]; `.release-source` sha+version) und pusht ihn.

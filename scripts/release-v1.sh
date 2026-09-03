@@ -65,7 +65,7 @@ TAG_NAME="$(git log -1 --format='%an' "$RELEASE_SHA")"; TAG_EMAIL="$(git log -1 
 echo ""
 echo "── Release-Plan ──────────────────────────────────────────"
 echo "   Kandidat: $BRANCH = $RELEASE_SHA + Rewrite-Commit (@v1 → @$BRANCH)"
-echo "   Gates:    release.yml (Orchestrator · Docker-Push ubuntu+self-hosted · Promotion)"
+echo "   Gates:    release.yml (Orchestrator volle CI · Docker-Push ubuntu · Promotion/crane)"
 echo "   Danach:   Tag $VERSION_TAG + @v1 → $RELEASE_SHA (durch den Workflow)"
 echo "──────────────────────────────────────────────────────────"
 if [ "$DRY_RUN" != 1 ] && [ "$ASSUME_YES" != 1 ]; then
