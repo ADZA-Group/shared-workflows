@@ -3,7 +3,14 @@
 #
 # build(load) → size-gate → Trivy image scan (dual-gate) → smoke → SBOM
 # and when push=true: GHCR login → metadata tags → :previous backup (main)
-# → build+push (multi-arch) → cosign keyless sign + SLSA provenance.
+# → push → cosign keyless sign + SLSA provenance.
+#
+# Audit 2026-09-03 (Fund 3): das GESCANNTE Image ist das GEPUSHTE Image.
+# Single-arch (Fleet-Default) pusht das lokal geladene, geprüfte Image per
+# `docker push` unter allen Tags — kein zweiter Build mehr, dessen Layer sich
+# von den geprüften unterscheiden könnten (und der am 03.09. in rechnungsapp
+# Run 33750934660 als einziger Schritt rot war). Nur multi-arch baut weiter
+# per buildx neu (Caveat bleibt dort dokumentiert).
 #
 # Usage:
 #   uses: adza-group/shared-workflows/.github/workflows/reusable-docker-build.yml@v1
@@ -81,7 +88,7 @@ on:
       smoke-command:
         required: false
         type: string
-        description: "Optional shell command to smoke-test the loaded image ($IMAGE env = ci tag)"
+        description: "Optional shell command to smoke-test the loaded image ($IMAGE env = ci tag). Wird per `bash -c` ausgefuehrt — bewusst Code, Vertrauensgrenze = Caller-Workflow."
         default: ""
       tag-config:
         required: false
@@ -115,10 +122,15 @@ jobs:
       packages: write
       id-token: write
       attestations: write
+    env:
+      # Ein Ort fuer den lokalen CI-Tag; alle Steps lesen ihn aus env statt per
+      # ${{ }} in run: (Audit 2026-09-03, Fund 1+2: Caller-Inputs nie in Shell-Text).
+      IMAGE_NAME: ${{ inputs.image-name }}
+      CI_TAG: ${{ inputs.image-name }}:ci-${{ github.run_id }}
     outputs:
       tag: ${{ steps.localtag.outputs.tag }}
       size: ${{ steps.size.outputs.mb }}
-      digest: ${{ steps.build-push.outputs.digest }}
+      digest: ${{ steps.push.outputs.digest || steps.build-push.outputs.digest }}
       candidate: ${{ steps.candidate.outputs.tag }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
@@ -129,6 +141,22 @@ jobs:
 
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c  # v4.2.0
 
+      # Metadata VOR dem Build: die OCI-Labels gehoeren ins gescannte Image, denn
+      # genau dieses Image wird gepusht (kein Re-Build mehr, s. Kopf).
+      - name: Docker metadata (tags + labels)
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302  # v6.2.0
+        with:
+          images: ${{ inputs.image-name }}
+          # Deploy-Tags ref-basiert (NICHT {{is_default_branch}}: ADZA-Repos haben dev als
+          # Default-Branch → is_default_branch taggte :latest auf dev-Builds → Watchtower
+          # deployte dev-Images auf PROD; :staging wurde dagegen nie getaggt → Staging fror ein).
+          tags: |
+            ${{ inputs.tag-config }}
+            type=raw,value=staging,enable=${{ github.ref == 'refs/heads/dev' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' && !inputs.gated-promotion }}
+            type=raw,value=candidate-${{ github.sha }},enable=${{ github.ref == 'refs/heads/main' && inputs.gated-promotion }}
+
       - name: Build (single-arch, load for scan)
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7.3.0
         with:
@@ -137,6 +165,7 @@ jobs:
           push: false
           load: true
           tags: ${{ inputs.image-name }}:ci-${{ github.run_id }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: ${{ inputs.cache-from }}
           cache-to: type=gha,mode=max
           build-args: |
@@ -145,15 +174,16 @@ jobs:
 
       - name: Local tag output
         id: localtag
-        run: echo "tag=${{ inputs.image-name }}:ci-${{ github.run_id }}" >> "$GITHUB_OUTPUT"
+        run: echo "tag=$CI_TAG" >> "$GITHUB_OUTPUT"
 
       - name: "📏 Image Size Gate"
         id: size
+        env:
+          LIMIT_MB: ${{ inputs.image-size-limit-mb }}
         run: |
-          REF="${{ inputs.image-name }}:ci-${{ github.run_id }}"
-          SIZE_BYTES=$(docker image inspect "$REF" --format='{{.Size}}')
+          SIZE_BYTES=$(docker image inspect "$CI_TAG" --format='{{.Size}}')
           MB=$((SIZE_BYTES / 1024 / 1024))
-          LAYERS=$(docker image inspect "$REF" --format='{{len .RootFS.Layers}}')
+          LAYERS=$(docker image inspect "$CI_TAG" --format='{{len .RootFS.Layers}}')
           echo "mb=$MB" >> "$GITHUB_OUTPUT"
           {
             echo "## 🐳 Docker Image"
@@ -161,10 +191,10 @@ jobs:
             echo "|--------|-------|"
             echo "| Size | **${MB} MB** |"
             echo "| Layers | ${LAYERS} |"
-            echo "| Limit | ${{ inputs.image-size-limit-mb }} MB |"
+            echo "| Limit | ${LIMIT_MB} MB |"
           } >> "$GITHUB_STEP_SUMMARY"
-          if [ "$MB" -gt "${{ inputs.image-size-limit-mb }}" ]; then
-            echo "::error::Image too large: ${MB} MB (max ${{ inputs.image-size-limit-mb }} MB)"; exit 1
+          if [ "$MB" -gt "$LIMIT_MB" ]; then
+            echo "::error::Image too large: ${MB} MB (max ${LIMIT_MB} MB)"; exit 1
           fi
 
       - name: "🔍 Trivy Image Scan (gate)"
@@ -185,7 +215,8 @@ jobs:
         if: ${{ inputs.smoke-command != '' }}
         env:
           IMAGE: ${{ inputs.image-name }}:ci-${{ github.run_id }}
-        run: ${{ inputs.smoke-command }}
+          SMOKE_CMD: ${{ inputs.smoke-command }}
+        run: bash -c "$SMOKE_CMD"
 
       - name: "📋 SBOM (CycloneDX)"
         if: ${{ inputs.generate-sbom && !inputs.light }}
@@ -213,45 +244,107 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Docker metadata (tags + labels)
-        if: ${{ inputs.push }}
-        id: meta
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302  # v6.2.0
-        with:
-          images: ${{ inputs.image-name }}
-          # Deploy-Tags ref-basiert (NICHT {{is_default_branch}}: ADZA-Repos haben dev als
-          # Default-Branch → is_default_branch taggte :latest auf dev-Builds → Watchtower
-          # deployte dev-Images auf PROD; :staging wurde dagegen nie getaggt → Staging fror ein).
-          tags: |
-            ${{ inputs.tag-config }}
-            type=raw,value=staging,enable=${{ github.ref == 'refs/heads/dev' }}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' && !inputs.gated-promotion }}
-            type=raw,value=candidate-${{ github.sha }},enable=${{ github.ref == 'refs/heads/main' && inputs.gated-promotion }}
-
+      # Backup-Steps (Audit 2026-09-03, Fund 6): kein continue-on-error mehr — ein
+      # Registry-/Auth-/Netzfehler beim Backup blockt den Push, sonst rollt ein
+      # spaeterer Auto-Rollback auf ein veraltetes :previous. "Tag existiert nicht"
+      # (Erst-Push) wird EXPLIZIT von "inspect fehlgeschlagen" unterschieden.
       - name: "Backup :latest -> :previous (main only)"
         if: ${{ inputs.push && github.ref == 'refs/heads/main' && !inputs.gated-promotion }}
-        continue-on-error: true
+        env: { FROM: latest, TO: previous }
         run: |
-          if docker buildx imagetools inspect ${{ inputs.image-name }}:latest >/dev/null 2>&1; then
-            docker buildx imagetools create --tag ${{ inputs.image-name }}:previous ${{ inputs.image-name }}:latest
-            echo "::notice::backed up :latest -> :previous"
+          set +e
+          OUT=$(docker buildx imagetools inspect "${IMAGE_NAME}:${FROM}" 2>&1); RC=$?
+          set -e
+          if [ "$RC" -eq 0 ]; then
+            docker buildx imagetools create --tag "${IMAGE_NAME}:${TO}" "${IMAGE_NAME}:${FROM}"
+            echo "::notice::backed up :${FROM} -> :${TO}"
+          elif printf '%s' "$OUT" | grep -qiE 'manifest unknown|MANIFEST_UNKNOWN|no such manifest' \
+               || printf '%s' "$OUT" | grep -qF "${IMAGE_NAME}:${FROM}: not found"; then
+            # NUR Registry-404 (Codex-Fund R1-E3): generisches "not found" traf auch
+            # Credential-Helper-Fehler ("credentials not found in native keychain").
+            echo "::notice::no existing :${FROM} to back up (first push)"
           else
-            echo "::notice::no existing :latest to back up (first push)"
+            echo "::error::imagetools inspect ${IMAGE_NAME}:${FROM} failed (rc=$RC) — Backup unklar, Push geblockt"; printf '%s\n' "$OUT"; exit 1
           fi
 
       - name: "Backup :staging -> :staging-previous (dev only)"
         if: ${{ inputs.push && github.ref == 'refs/heads/dev' }}
-        continue-on-error: true
+        env: { FROM: staging, TO: staging-previous }
         run: |
-          if docker buildx imagetools inspect ${{ inputs.image-name }}:staging >/dev/null 2>&1; then
-            docker buildx imagetools create --tag ${{ inputs.image-name }}:staging-previous ${{ inputs.image-name }}:staging
-            echo "::notice::backed up :staging -> :staging-previous"
+          set +e
+          OUT=$(docker buildx imagetools inspect "${IMAGE_NAME}:${FROM}" 2>&1); RC=$?
+          set -e
+          if [ "$RC" -eq 0 ]; then
+            docker buildx imagetools create --tag "${IMAGE_NAME}:${TO}" "${IMAGE_NAME}:${FROM}"
+            echo "::notice::backed up :${FROM} -> :${TO}"
+          elif printf '%s' "$OUT" | grep -qiE 'manifest unknown|MANIFEST_UNKNOWN|no such manifest' \
+               || printf '%s' "$OUT" | grep -qF "${IMAGE_NAME}:${FROM}: not found"; then
+            # NUR Registry-404 (Codex-Fund R1-E3): generisches "not found" traf auch
+            # Credential-Helper-Fehler ("credentials not found in native keychain").
+            echo "::notice::no existing :${FROM} to back up (first push)"
           else
-            echo "::notice::no existing :staging to back up (first push)"
+            echo "::error::imagetools inspect ${IMAGE_NAME}:${FROM} failed (rc=$RC) — Backup unklar, Push geblockt"; printf '%s\n' "$OUT"; exit 1
           fi
 
+      # Single-arch: das GEPRUEFTE lokale Image wird gepusht — gleiche Bytes wie
+      # Size-Gate/Trivy/Smoke/SBOM gesehen haben, per Konstruktion. Reihenfolge
+      # (Codex-Fund R1-E1): ERST unter einem NICHT deployenden Verify-Tag hochladen
+      # (Watchtower zieht nur :staging/:latest), Digest bestimmen, DANN alle Deploy-
+      # Tags server-seitig per `imagetools create <image>@<digest>` setzen. Scheitert
+      # irgendetwas davor, ist kein Deploy-Tag bewegt worden. Verify-Tag ist pro
+      # Branch fix (wird ueberschrieben, akkumuliert nicht); die Retags haengen am
+      # Digest, nicht am Tag — ein paralleler Lauf kann sie nicht verfaelschen.
+      - name: Push scanned image (single-arch, verify-tag first, then retag by digest)
+        if: ${{ inputs.push && inputs.platforms == 'linux/amd64' }}
+        id: push
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          VERIFY="${IMAGE_NAME}:verify-$(printf '%s' "$REF_NAME" | tr -c 'A-Za-z0-9_.-' '-')"
+          docker tag "$CI_TAG" "$VERIFY"
+          docker push "$VERIFY" | tee /tmp/push.log
+          DIGEST=$(grep -oE 'digest: sha256:[0-9a-f]{64}' /tmp/push.log | head -1 | cut -d' ' -f2)
+          [ -n "$DIGEST" ] || { echo "::error::no digest in push output for $VERIFY"; exit 1; }
+          # Gegenprobe: Registry-Digest == das, was wir hochgeladen haben.
+          docker buildx imagetools inspect "${IMAGE_NAME}@${DIGEST}" >/dev/null || { echo "::error::pushed digest ${DIGEST} not resolvable in registry"; exit 1; }
+          # Retag-Reihenfolge (Codex-Fund R2-E1): erst alle NICHT deployenden Tags, der
+          # Deploy-Tag (:staging / :latest / :candidate-*) als GARANTIERT LETZTE mutierende
+          # Operation — ein roter Push-Job hat dann nie einen Deploy-Tag bewegt. Jeder Retag
+          # wird per inspect gegen den Push-Digest gegengemessen.
+          NORMAL=(); DEPLOY=()
+          while IFS= read -r T; do
+            [ -n "$T" ] || continue
+            case "$T" in
+              *:staging|*:latest|*:candidate-*) DEPLOY+=("$T") ;;
+              *) NORMAL+=("$T") ;;
+            esac
+          done <<< "$TAGS"
+          [ "${#DEPLOY[@]}" -le 1 ] || { echo "::error::more than one deploy tag in one push (${DEPLOY[*]}) — refusing"; exit 1; }
+          N=$(( ${#NORMAL[@]} + ${#DEPLOY[@]} ))
+          [ "$N" -gt 0 ] || { echo "::error::no tags set (metadata produced none)"; exit 1; }
+          # Harte Digest-Gegenmessung NUR an den NORMAL-Tags (Codex-Fund R3-E1): nach dem
+          # Deploy-Retag folgt kein harter Check mehr, sonst kann der Job rot enden, obwohl
+          # der Deploy-Tag schon bewegt ist. Was bleibt, ist die Registry-Grundunsicherheit
+          # "Server mutiert, Client verliert die Antwort" — die ist nicht wegzubauen.
+          for T in "${NORMAL[@]}"; do
+            docker buildx imagetools create --tag "$T" "${IMAGE_NAME}@${DIGEST}"
+            GOT=$(docker buildx imagetools inspect "$T" --format '{{.Manifest.Digest}}')
+            [ "$GOT" = "$DIGEST" ] || { echo "::error::retag $T resolved to ${GOT}, expected ${DIGEST} — deploy tag NOT touched"; exit 1; }
+          done
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          for T in "${DEPLOY[@]}"; do
+            docker buildx imagetools create --tag "$T" "${IMAGE_NAME}@${DIGEST}"   # letzte mutierende Operation
+            docker buildx imagetools inspect "$T" --format '{{.Manifest.Digest}}' 2>/dev/null | grep -qx "$DIGEST" \
+              || echo "::warning::post-check of deploy tag $T inconclusive (tag was set; verify manually if unsure)"
+          done
+          echo "::notice::pushed scanned image ${DIGEST} as ${VERIFY}; ${#NORMAL[@]} normal tag(s) verified, then deploy tag(s): ${DEPLOY[*]:-none}"
+
+      # Multi-arch: buildx muss neu bauen (arm64 wurde lokal nie geladen). Caveat
+      # (README): das gepushte arm64-Image ist nicht das gescannte; amd64 kommt
+      # aus demselben Build-Cache.
       - name: Build + push (multi-arch)
-        if: ${{ inputs.push }}
+        if: ${{ inputs.push && inputs.platforms != 'linux/amd64' }}
         id: build-push
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7.3.0
         with:
@@ -270,18 +363,45 @@ jobs:
       - name: Candidate tag output
         if: ${{ inputs.push && inputs.gated-promotion && github.ref == 'refs/heads/main' }}
         id: candidate
-        run: echo "tag=${{ inputs.image-name }}:candidate-${{ github.sha }}" >> "$GITHUB_OUTPUT"
+        env:
+          SHA: ${{ github.sha }}
+        run: echo "tag=${IMAGE_NAME}:candidate-${SHA}" >> "$GITHUB_OUTPUT"
 
-      - name: Install cosign
-        if: ${{ inputs.push && inputs.sign-image && !inputs.light }}
+      - name: Install cosign (github-hosted)
+        if: ${{ inputs.push && inputs.sign-image && !inputs.light && runner.environment == 'github-hosted' }}
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
+
+      # Self-hosted (Audit 2026-09-03, Fund D): der Installer kostete 116 s pro Build
+      # (Job 100301553891), weil sein actions/cache-Restore auf der persistenten Platte
+      # reine Netzlast ist (dieselbe Lehre wie pip v1.9.2). Stattdessen: einmal laden,
+      # sha256 gegen die im Workflow gepinnte Summe pruefen — bei JEDER Wiederverwendung
+      # erneut (ein manipulierter Cache wird nie ungeprueft ausgefuehrt), atomar per mv.
+      - name: Install cosign (self-hosted, cached + verified)
+        if: ${{ inputs.push && inputs.sign-image && !inputs.light && runner.environment != 'github-hosted' }}
+        env:
+          COSIGN_VERSION: v3.1.3
+          COSIGN_SHA256: 4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71
+        run: |
+          DIR="$HOME/.cache/adza/cosign-${COSIGN_VERSION}"
+          BIN="$DIR/cosign"
+          mkdir -p "$DIR"
+          ok() { [ -f "$BIN" ] && echo "${COSIGN_SHA256}  ${BIN}" | sha256sum -c --quiet - 2>/dev/null; }
+          if ! ok; then
+            TMP=$(mktemp "$DIR/.cosign.XXXXXX")
+            curl -sSfL "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-amd64" -o "$TMP"
+            echo "${COSIGN_SHA256}  ${TMP}" | sha256sum -c --quiet - || { rm -f "$TMP"; echo "::error::cosign checksum mismatch"; exit 1; }
+            chmod 0755 "$TMP" && mv -f "$TMP" "$BIN"
+          fi
+          ok || { echo "::error::cosign binary failed verification after install"; exit 1; }
+          echo "$DIR" >> "$GITHUB_PATH"
+          "$BIN" version | head -3
 
       - name: Cosign sign (keyless)
         if: ${{ inputs.push && inputs.sign-image && !inputs.light }}
         continue-on-error: true   # best-effort: Sigstore/Rekor outages or org limits must not fail a pushed build
         env:
-          DIGEST: ${{ steps.build-push.outputs.digest }}
-        run: cosign sign --yes "${{ inputs.image-name }}@${DIGEST}"
+          DIGEST: ${{ steps.push.outputs.digest || steps.build-push.outputs.digest }}
+        run: cosign sign --yes "${IMAGE_NAME}@${DIGEST}"
 
       - name: SLSA build provenance
         if: ${{ inputs.push && inputs.sign-image && !inputs.light }}
@@ -289,5 +409,5 @@ jobs:
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373  # v4.1.1
         with:
           subject-name: ${{ inputs.image-name }}
-          subject-digest: ${{ steps.build-push.outputs.digest }}
+          subject-digest: ${{ steps.push.outputs.digest || steps.build-push.outputs.digest }}
           push-to-registry: true

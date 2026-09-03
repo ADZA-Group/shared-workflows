@@ -42,6 +42,8 @@ jobs:
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          DRAFT: ${{ inputs.draft }}
+          PRERELEASE: ${{ inputs.prerelease }}
         run: |
           TAG="${GITHUB_REF_NAME}"
           if [ -z "$TAG" ]; then
@@ -50,8 +52,8 @@ jobs:
           fi
           DRAFT_FLAG=""
           PRERELEASE_FLAG=""
-          [ "${{ inputs.draft }}" = "true" ] && DRAFT_FLAG="--draft"
-          [ "${{ inputs.prerelease }}" = "true" ] && PRERELEASE_FLAG="--prerelease"
+          [ "$DRAFT" = "true" ] && DRAFT_FLAG="--draft"
+          [ "$PRERELEASE" = "true" ] && PRERELEASE_FLAG="--prerelease"
           gh release create "$TAG" \
             --generate-notes \
             --title "$TAG" \

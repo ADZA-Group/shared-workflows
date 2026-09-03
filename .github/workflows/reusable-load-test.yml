@@ -55,12 +55,15 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
       - name: "📈 Run k6 baseline"
+        env:
+          TARGET: ${{ inputs.target-url }}
+          SCRIPT: ${{ inputs.test-script }}
         run: |
           k6 run \
-            --env TARGET_URL=${{ inputs.target-url }} \
+            --env TARGET_URL="$TARGET" \
             --summary-trend-stats="avg,min,med,max,p(90),p(95),p(99)" \
             --summary-export=/tmp/k6-summary.json \
-            ${{ inputs.test-script }} || true
+            "$SCRIPT" || true
 
       - name: "📈 Enforce budgets"
         env:

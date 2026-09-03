@@ -25,29 +25,45 @@ runs:
   steps:
     - name: Install conftest
       shell: bash
+      env:
+        V: ${{ inputs.conftest-version }}
+        # sha256 des Release-Tarballs conftest_0.56.0_Linux_x86_64.tar.gz (Audit 2026-09-03, Fund 7).
+        # Andere Version ⇒ Summe hier mitziehen, sonst blockt der Check (fail-closed).
+        CONFTEST_SHA256_0_56_0: 620f41640d63bbde1646a108ce2816ba54c980466ceebb7e754dda2d508e8cd5
       run: |
-        if ! command -v conftest >/dev/null 2>&1; then
-          V="${{ inputs.conftest-version }}"
-          curl -sSfL "https://github.com/open-policy-agent/conftest/releases/download/v${V}/conftest_${V}_Linux_x86_64.tar.gz" \
-            | sudo tar xz -C /usr/local/bin conftest
-        fi
-        conftest --version
+        # IMMER aus dem gepinnten Tarball installieren — ein vorhandenes /usr/local/bin/conftest
+        # auf der persistenten Runner-Platte wuerde den Hash-Pfad sonst umgehen (Codex-Fund R2-E2).
+        case "$V" in
+          0.56.0) SUM="$CONFTEST_SHA256_0_56_0" ;;
+          *) echo "::error::no pinned sha256 for conftest ${V} — add it to opa-policy/action.yml"; exit 1 ;;
+        esac
+        curl -sSfL "https://github.com/open-policy-agent/conftest/releases/download/v${V}/conftest_${V}_Linux_x86_64.tar.gz" -o "$RUNNER_TEMP/conftest.tgz"
+        echo "${SUM}  $RUNNER_TEMP/conftest.tgz" | sha256sum -c --quiet - || { echo "::error::conftest checksum mismatch"; exit 1; }
+        mkdir -p "$RUNNER_TEMP/conftest-bin"
+        tar xz -C "$RUNNER_TEMP/conftest-bin" -f "$RUNNER_TEMP/conftest.tgz" conftest
+        echo "$RUNNER_TEMP/conftest-bin" >> "$GITHUB_PATH"
+        "$RUNNER_TEMP/conftest-bin/conftest" --version
 
     - name: Run policies
       shell: bash
+      env:
+        POLICY: ${{ github.action_path }}/policy
+        DOCKERFILE: ${{ inputs.dockerfile }}
+        COMPOSE_GLOB: ${{ inputs.compose-glob }}
+        BLOCKING: ${{ inputs.blocking }}
       run: |
-        POLICY="${{ github.action_path }}/policy"
         RC=0
-        if [ -f "${{ inputs.dockerfile }}" ]; then
-          conftest test "${{ inputs.dockerfile }}" --policy "$POLICY" --parser dockerfile || RC=$?
+        if [ -f "$DOCKERFILE" ]; then
+          conftest test "$DOCKERFILE" --policy "$POLICY" --parser dockerfile || RC=$?
         else
-          echo "::notice::no Dockerfile at ${{ inputs.dockerfile }} — skipping"
+          echo "::notice::no Dockerfile at $DOCKERFILE — skipping"
         fi
-        for f in ${{ inputs.compose-glob }}; do
+        # Glob-Expansion ist hier gewollt (compose-glob), daher unquoted in for.
+        for f in $COMPOSE_GLOB; do
           [ -f "$f" ] || continue
           conftest test "$f" --policy "$POLICY" || RC=$?
         done
-        if [ "$RC" != "0" ] && [ "${{ inputs.blocking }}" = "true" ]; then
+        if [ "$RC" != "0" ] && [ "$BLOCKING" = "true" ]; then
           echo "::error::OPA policy violations found"; exit 1
         elif [ "$RC" != "0" ]; then
           echo "::warning::OPA policy violations (advisory)"

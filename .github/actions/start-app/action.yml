@@ -30,18 +30,26 @@ runs:
     - name: Launch + poll
       id: launch
       shell: bash
+      env:
+        # boot-command ist BEWUSST ausfuehrbarer Code (Vertrauensgrenze = Caller-Workflow);
+        # er wird aber als Daten uebergeben und per bash -c ausgefuehrt, nicht in den
+        # Step-Quelltext interpoliert (Audit 2026-09-03, Fund 1+2).
+        BOOT: ${{ inputs.boot-command }}
+        HEALTH: ${{ inputs.health-url }}
+        MAX: ${{ inputs.max-retries }}
+        DELAY: ${{ inputs.retry-delay }}
       run: |
-        nohup bash -c "${{ inputs.boot-command }}" > app-boot.log 2>&1 &
+        nohup bash -c "$BOOT" > app-boot.log 2>&1 &
         PID=$!
         echo "pid=$PID" >> "$GITHUB_OUTPUT"
-        echo "Launched PID $PID; polling ${{ inputs.health-url }}"
-        for i in $(seq 1 ${{ inputs.max-retries }}); do
-          if curl -fsS -o /dev/null --max-time 5 "${{ inputs.health-url }}"; then
+        echo "Launched PID $PID; polling $HEALTH"
+        for i in $(seq 1 "$MAX"); do
+          if curl -fsS -o /dev/null --max-time 5 "$HEALTH"; then
             echo "✅ healthy after ${i} attempt(s)"; exit 0
           fi
           if ! kill -0 "$PID" 2>/dev/null; then
             echo "::error::app process died during startup"; cat app-boot.log; exit 1
           fi
-          sleep ${{ inputs.retry-delay }}
+          sleep "$DELAY"
         done
         echo "::error::health check never passed"; cat app-boot.log; exit 1

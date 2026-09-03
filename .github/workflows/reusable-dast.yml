@@ -1,7 +1,10 @@
 # ═══════════════════════════════════════════════════════════════
 # Reusable DAST Workflow — ADZA-Group
-# OWASP ZAP baseline scan against a live URL. Always ubuntu-latest.
-# Dual-gate: advisory on PR/dev, blocking=true for main/tags.
+# OWASP ZAP baseline scan against a live URL.
+# Gate: `blocking` entscheidet, ob FAIL-level-Alerts den Job rot machen (Default
+# false; reusable-ci uebergibt derzeit false = advisory, Policy-Entscheid Azad).
+# Ein UNLESBARER Report ist dagegen IMMER rot (Audit 2026-09-03, Fund 5): vorher
+# machte `|| echo 0:0:0` aus einem Parse-Fehler "no FAIL-level alerts".
 # ═══════════════════════════════════════════════════════════════
 
 name: "🔓 DAST"
@@ -12,7 +15,7 @@ on:
       target-url:
         required: true
         type: string
-        description: "URL to scan (must be reachable from ubuntu-hosted runner)"
+        description: "URL to scan (must be reachable from the runner)"
       scan-type:
         required: false
         type: string
@@ -36,6 +39,9 @@ jobs:
     name: "🔓 ZAP DAST (${{ inputs.scan-type }})"
     runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 20
+    env:
+      TARGET_URL: ${{ inputs.target-url }}
+      SCAN_TYPE: ${{ inputs.scan-type }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
@@ -47,37 +53,49 @@ jobs:
           # Scan selbst sauber war (Incident recyclage-app main). Weltschreibbares
           # Unterverzeichnis ist runner-agnostisch (hosted UND self-hosted).
           mkdir -p zap-out && chmod 0777 zap-out
-          SCAN_CMD="zap-${{ inputs.scan-type }}.py"
+          case "$SCAN_TYPE" in baseline|full) ;; *) echo "::error::scan-type must be baseline|full (got '$SCAN_TYPE')"; exit 1 ;; esac
           docker run --rm \
-            -v "${{ github.workspace }}/zap-out:/zap/wrk:rw" \
+            -v "${GITHUB_WORKSPACE}/zap-out:/zap/wrk:rw" \
             ghcr.io/zaproxy/zaproxy:stable \
-            "$SCAN_CMD" \
-            -t "${{ inputs.target-url }}" \
+            "zap-${SCAN_TYPE}.py" \
+            -t "$TARGET_URL" \
             -J zap-report.json \
             -r zap-report.html \
             -I || true   # ZAP exits non-zero on alerts — we gate separately
 
       - name: Parse report + enforce gate
+        env:
+          BLOCKING: ${{ inputs.blocking }}
         run: |
           if [ ! -f zap-out/zap-report.json ]; then
             echo "::error::ZAP report not found — scan may have failed to start"
             exit 1
           fi
-          FAIL=$(python3 -c "
-          import json
-          d = json.load(open('zap-out/zap-report.json'))
-          alerts = d.get('site', [{}])[0].get('alerts', []) if d.get('site') else []
+          # Fail-closed: Parse-/Schemafehler ⇒ rot, nie "0 Findings".
+          if ! COUNTS=$(python3 - <<'PY'
+          import json, sys
+          d = json.load(open('zap-out/zap-report.json', encoding='utf-8'))
+          sites = d.get('site')
+          if not isinstance(sites, list) or not sites:
+              sys.exit("report has no 'site' list")
+          alerts = sites[0].get('alerts')
+          if not isinstance(alerts, list):
+              sys.exit("report has no 'alerts' list")
           fail = sum(1 for a in alerts if a.get('riskcode') == '3')
           high = sum(1 for a in alerts if a.get('riskcode') == '2')
           med  = sum(1 for a in alerts if a.get('riskcode') == '1')
           print(f'{fail}:{high}:{med}')
-          " 2>/dev/null || echo "0:0:0")
-          FAIL_COUNT=$(echo "$FAIL" | cut -d: -f1)
-          HIGH_COUNT=$(echo "$FAIL" | cut -d: -f2)
-          MED_COUNT=$(echo "$FAIL" | cut -d: -f3)
+          PY
+          ); then
+            echo "::error::ZAP report unlesbar/schemafremd — kein Ergebnis ist kein gruenes Ergebnis"
+            exit 1
+          fi
+          FAIL_COUNT=$(echo "$COUNTS" | cut -d: -f1)
+          HIGH_COUNT=$(echo "$COUNTS" | cut -d: -f2)
+          MED_COUNT=$(echo "$COUNTS" | cut -d: -f3)
           {
-            echo "## 🔓 DAST — ZAP ${{ inputs.scan-type }}"
-            echo "Target: \`${{ inputs.target-url }}\`"
+            echo "## 🔓 DAST — ZAP ${SCAN_TYPE}"
+            echo "Target: \`${TARGET_URL}\`"
             echo ""
             echo "| Risk | Count |"
             echo "|------|-------|"
@@ -87,7 +105,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "$FAIL_COUNT" -gt 0 ]; then
             MSG="ZAP found ${FAIL_COUNT} FAIL-level alert(s)"
-            if [ "${{ inputs.blocking }}" = "true" ]; then
+            if [ "$BLOCKING" = "true" ]; then
               echo "::error::${MSG}"; exit 1
             else
               echo "::warning::${MSG} (advisory)"

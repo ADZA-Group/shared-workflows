@@ -85,10 +85,12 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
       - name: Install + run osv-scanner
+        env:
+          OSV_SHA256: c52d68f857d9aa6d6a2e98fcf0fda9e75307d59ee1fe1db26ffc588f1c5fda33   # osv-scanner_linux_amd64 v1.9.1 (Audit 2026-09-03, Fund 7)
         run: |
-          curl -sSfL https://github.com/google/osv-scanner/releases/download/v1.9.1/osv-scanner_linux_amd64 \
-            -o /usr/local/bin/osv-scanner
-          chmod +x /usr/local/bin/osv-scanner
+          curl -sSfL https://github.com/google/osv-scanner/releases/download/v1.9.1/osv-scanner_linux_amd64 -o "$RUNNER_TEMP/osv-scanner"
+          echo "${OSV_SHA256}  $RUNNER_TEMP/osv-scanner" | sha256sum -c --quiet - || { echo "::error::osv-scanner checksum mismatch"; exit 1; }
+          install -m 0755 "$RUNNER_TEMP/osv-scanner" /usr/local/bin/osv-scanner
           osv-scanner --recursive . 2>&1 | tee /tmp/osv.txt || true
           {
             echo "## 🔎 OSV Scanner"
@@ -130,8 +132,10 @@ jobs:
           fetch-depth: 0
       - name: Install + run TruffleHog
         run: |
-          curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh \
-            | sh -s -- -b /usr/local/bin
+          # Installer auf Release-Tag gepinnt statt `main` (Audit 2026-09-03, Fund 7) — bleibt
+          # Codevertrauen in das Skript; das Skript selbst prueft die Binary-Checksumme.
+          curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/v3.97.2/scripts/install.sh \
+            | sh -s -- -b /usr/local/bin v3.97.2
           trufflehog git "file://$(pwd)" --only-verified --json 2>/dev/null | tee /tmp/truffle.json || true
           COUNT=$(wc -l < /tmp/truffle.json 2>/dev/null || echo 0)
           {
@@ -151,10 +155,15 @@ jobs:
     continue-on-error: true
     steps:
       - name: Run Nuclei CVE + tech templates
+        env:
+          PROD_URL: ${{ inputs.prod-url }}
+          # Digest-gepinnt (Codex-Fund R2-E3): `:latest` + `|| true` liess bei Pull-Fehler ein
+          # beliebiges lokales Image gleichen Namens laufen. v3.11.1 Index-Digest, 2026-09-03.
+          NUCLEI_IMAGE: projectdiscovery/nuclei:v3.11.1@sha256:582d5546902e67052097cb2d07296c642d50a1afc5e44623cb038845df9a32eb
         run: |
-          docker pull projectdiscovery/nuclei:latest -q 2>/dev/null || true
-          docker run --rm projectdiscovery/nuclei:latest \
-            -u "${{ inputs.prod-url }}" \
+          docker pull -q "$NUCLEI_IMAGE" || { echo "::error::nuclei image pull failed — no scan"; exit 1; }
+          docker run --rm "$NUCLEI_IMAGE" \
+            -u "$PROD_URL" \
             -t cves/ -t technologies/ \
             -severity critical,high,medium \
             -json -o /tmp/nuclei.json || true
@@ -163,7 +172,7 @@ jobs:
           CRIT=$(grep -c '"severity":"critical"' /tmp/nuclei.json 2>/dev/null || echo 0)
           {
             echo "## 🔬 Nuclei"
-            echo "Target: \`${{ inputs.prod-url }}\`"
+            echo "Target: \`${PROD_URL}\`"
             echo "| Severity | Count |"
             echo "|----------|-------|"
             echo "| Critical | ${CRIT} |"

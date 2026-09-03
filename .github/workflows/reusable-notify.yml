@@ -128,61 +128,69 @@ jobs:
             COLOR="15158332"
           fi
 
-          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
-          echo "sha=$SHORT_SHA" >> $GITHUB_OUTPUT
-          echo "url=$RUN_URL" >> $GITHUB_OUTPUT
-          echo "actor=$ACTOR" >> $GITHUB_OUTPUT
-          echo "icon=$ICON" >> $GITHUB_OUTPUT
-          echo "color=$COLOR" >> $GITHUB_OUTPUT
-          echo "app=$APP" >> $GITHUB_OUTPUT
-          echo "status=$STATUS" >> $GITHUB_OUTPUT
+          {
+            echo "branch=$BRANCH"; echo "sha=$SHORT_SHA"; echo "url=$RUN_URL"; echo "actor=$ACTOR"
+            echo "icon=$ICON"; echo "color=$COLOR"; echo "app=$APP"; echo "status=$STATUS"
+          } >> "$GITHUB_OUTPUT"
 
+      # Audit 2026-09-03 (Fund F): Payloads werden per `jq -n --arg` aus env gebaut —
+      # keine ${{ }} mehr im Shell-Text, Quotes/Newlines in app-name/branch/url koennen
+      # weder Shell noch JSON zerlegen. Telegram: --data-urlencode + HTML-Escaping.
       - name: "Discord"
         if: steps.trans.outputs.send == 'true' && env.DISCORD_WEBHOOK != ''
         continue-on-error: true
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          O_APP: ${{ steps.ctx.outputs.app }}
+          O_ICON: ${{ steps.ctx.outputs.icon }}
+          O_STATUS: ${{ steps.ctx.outputs.status }}
+          O_COLOR: ${{ steps.ctx.outputs.color }}
           O_BRANCH: ${{ steps.ctx.outputs.branch }}
+          O_SHA: ${{ steps.ctx.outputs.sha }}
+          O_ACTOR: ${{ steps.ctx.outputs.actor }}
+          O_URL: ${{ steps.ctx.outputs.url }}
         run: |
-          curl -sSf -X POST "$DISCORD_WEBHOOK" \
-            -H "Content-Type: application/json" \
-            -d '{
-              "username": "${{ steps.ctx.outputs.app }} CI",
-              "embeds": [{
-                "title": "${{ steps.ctx.outputs.icon }} CI/CD Pipeline — ${{ steps.ctx.outputs.status }}",
-                "color": ${{ steps.ctx.outputs.color }},
-                "fields": [
-                  {"name": "App", "value": "`${{ steps.ctx.outputs.app }}`", "inline": true},
-                  {"name": "Branch", "value": "`'"$O_BRANCH"'`", "inline": true},
-                  {"name": "Commit", "value": "`${{ steps.ctx.outputs.sha }}`", "inline": true},
-                  {"name": "Author", "value": "${{ steps.ctx.outputs.actor }}", "inline": true},
-                  {"name": "Details", "value": "[View Run](${{ steps.ctx.outputs.url }})"}
-                ],
-                "timestamp": "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"
-              }]
-            }'
+          PAYLOAD=$(jq -n \
+            --arg user "${O_APP} CI" --arg title "${O_ICON} CI/CD Pipeline — ${O_STATUS}" --arg color "$O_COLOR" \
+            --arg app "$O_APP" --arg br "$O_BRANCH" --arg sha "$O_SHA" --arg actor "$O_ACTOR" --arg url "$O_URL" \
+            --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+            {username: $user, embeds: [{
+              title: $title, color: ($color|tonumber), timestamp: $ts,
+              fields: [
+                {name: "App",     value: ("`"+$app+"`"), inline: true},
+                {name: "Branch",  value: ("`"+$br+"`"),  inline: true},
+                {name: "Commit",  value: ("`"+$sha+"`"), inline: true},
+                {name: "Author",  value: $actor,         inline: true},
+                {name: "Details", value: ("[View Run]("+$url+")")}
+              ]}]}')
+          curl -sSf -X POST "$DISCORD_WEBHOOK" -H "Content-Type: application/json" -d "$PAYLOAD"
 
       - name: "Slack"
         if: steps.trans.outputs.send == 'true' && env.SLACK_WEBHOOK != ''
         continue-on-error: true
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          O_APP: ${{ steps.ctx.outputs.app }}
+          O_ICON: ${{ steps.ctx.outputs.icon }}
+          O_STATUS: ${{ steps.ctx.outputs.status }}
           O_BRANCH: ${{ steps.ctx.outputs.branch }}
+          O_SHA: ${{ steps.ctx.outputs.sha }}
+          O_ACTOR: ${{ steps.ctx.outputs.actor }}
+          O_URL: ${{ steps.ctx.outputs.url }}
         run: |
-          curl -sSf -X POST "$SLACK_WEBHOOK" \
-            -H "Content-Type: application/json" \
-            -d '{
-              "text": "${{ steps.ctx.outputs.icon }} ${{ steps.ctx.outputs.app }} CI/CD — ${{ steps.ctx.outputs.status }}",
-              "blocks": [
-                {"type": "header", "text": {"type": "plain_text", "text": "${{ steps.ctx.outputs.icon }} ${{ steps.ctx.outputs.app }} — ${{ steps.ctx.outputs.status }}"}},
-                {"type": "section", "fields": [
-                  {"type": "mrkdwn", "text": "*Branch:*\n`'"$O_BRANCH"'`"},
-                  {"type": "mrkdwn", "text": "*Commit:*\n`${{ steps.ctx.outputs.sha }}`"},
-                  {"type": "mrkdwn", "text": "*Author:*\n${{ steps.ctx.outputs.actor }}"}
-                ]},
-                {"type": "actions", "elements": [{"type": "button", "text": {"type": "plain_text", "text": "View Run"}, "url": "${{ steps.ctx.outputs.url }}"}]}
-              ]
-            }'
+          PAYLOAD=$(jq -n \
+            --arg text "${O_ICON} ${O_APP} CI/CD — ${O_STATUS}" --arg head "${O_ICON} ${O_APP} — ${O_STATUS}" \
+            --arg br "$O_BRANCH" --arg sha "$O_SHA" --arg actor "$O_ACTOR" --arg url "$O_URL" '
+            {text: $text, blocks: [
+              {type: "header", text: {type: "plain_text", text: $head}},
+              {type: "section", fields: [
+                {type: "mrkdwn", text: ("*Branch:*\n`"+$br+"`")},
+                {type: "mrkdwn", text: ("*Commit:*\n`"+$sha+"`")},
+                {type: "mrkdwn", text: ("*Author:*\n"+$actor)}
+              ]},
+              {type: "actions", elements: [{type: "button", text: {type: "plain_text", text: "View Run"}, url: $url}]}
+            ]}')
+          curl -sSf -X POST "$SLACK_WEBHOOK" -H "Content-Type: application/json" -d "$PAYLOAD"
 
       - name: "Telegram"
         if: steps.trans.outputs.send == 'true' && env.BOT_TOKEN != ''
@@ -190,12 +198,19 @@ jobs:
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          O_APP: ${{ steps.ctx.outputs.app }}
+          O_ICON: ${{ steps.ctx.outputs.icon }}
+          O_STATUS: ${{ steps.ctx.outputs.status }}
           O_BRANCH: ${{ steps.ctx.outputs.branch }}
+          O_SHA: ${{ steps.ctx.outputs.sha }}
+          O_ACTOR: ${{ steps.ctx.outputs.actor }}
+          O_URL: ${{ steps.ctx.outputs.url }}
         run: |
-          MSG="${{ steps.ctx.outputs.icon }} <b>${{ steps.ctx.outputs.app }} CI/CD — ${{ steps.ctx.outputs.status }}</b>%0A"
-          MSG+="<b>Branch:</b> <code>${O_BRANCH}</code>%0A"
-          MSG+="<b>Commit:</b> <code>${{ steps.ctx.outputs.sha }}</code>%0A"
-          MSG+="<b>Author:</b> ${{ steps.ctx.outputs.actor }}%0A"
-          MSG+="<a href='${{ steps.ctx.outputs.url }}'>View Run</a>"
+          esc() { printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'; }
+          MSG="${O_ICON} <b>$(esc "$O_APP") CI/CD — $(esc "$O_STATUS")</b>"
+          MSG+=$'\n'"<b>Branch:</b> <code>$(esc "$O_BRANCH")</code>"
+          MSG+=$'\n'"<b>Commit:</b> <code>$(esc "$O_SHA")</code>"
+          MSG+=$'\n'"<b>Author:</b> $(esc "$O_ACTOR")"
+          MSG+=$'\n'"<a href=\"$(esc "$O_URL")\">View Run</a>"
           curl -sSf -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
-            -d chat_id="${CHAT_ID}" -d parse_mode=HTML -d text="$MSG"
+            --data-urlencode "chat_id=${CHAT_ID}" --data-urlencode "parse_mode=HTML" --data-urlencode "text=${MSG}"

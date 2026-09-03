@@ -94,7 +94,9 @@ jobs:
       - name: Install app requirements
         if: ${{ inputs.requirements != '' }}
         shell: bash
-        run: pip install --retries 3 --timeout 60 -r "${{ inputs.requirements }}"   # venv from setup-python-deps is on PATH
+        env:
+          REQ: ${{ inputs.requirements }}
+        run: pip install --retries 3 --timeout 60 -r "$REQ"   # venv from setup-python-deps is on PATH
 
       - name: Verify schemathesis
         shell: bash
@@ -138,4 +140,6 @@ jobs:
       - name: Stop app
         if: ${{ always() && inputs.boot-command != '' && steps.start.outputs.app-pid != '' }}
         shell: bash
-        run: kill "${{ steps.start.outputs.app-pid }}" 2>/dev/null || true
+        env:
+          APP_PID: ${{ steps.start.outputs.app-pid }}
+        run: kill "$APP_PID" 2>/dev/null || true

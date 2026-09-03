@@ -22,8 +22,12 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: actionlint v1.7.12
+        env:
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8   # actionlint_1.7.12_linux_amd64.tar.gz (Audit 2026-09-03, Fund 7)
         run: |
-          curl -sSfL https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz | tar xz actionlint
+          curl -sSfL https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz -o "$RUNNER_TEMP/actionlint.tgz"
+          echo "${ACTIONLINT_SHA256}  $RUNNER_TEMP/actionlint.tgz" | sha256sum -c --quiet - || { echo "::error::actionlint checksum mismatch"; exit 1; }
+          tar xz -f "$RUNNER_TEMP/actionlint.tgz" actionlint
           # -shellcheck=/-pyflakes= leer: Gate prueft Workflow-STRUKTUR (Schema,
           # verwaiste needs:, Expressions) — Shell-Stil-Kosmetik ist kein
           # Gate-Thema und haengt sonst am zufaellig vorinstallierten shellcheck.

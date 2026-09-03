@@ -17,7 +17,7 @@ inputs:
     required: false
     default: "0"
   diff-coverage-compare-branch:
-    description: "Branch to diff against for changed-line coverage"
+    description: "Ref to diff against for changed-line coverage (branch like origin/main, or a commit SHA — e.g. github.event.before on main pushes)"
     required: false
     default: "origin/main"
   diff-coverage-blocking:
@@ -37,6 +37,9 @@ runs:
 
     - name: Combine + report + gate
       shell: bash
+      env:
+        THRESHOLD: ${{ inputs.threshold }}
+        BLOCKING: ${{ inputs.blocking }}
       run: |
         shopt -s dotglob
         if ! ls .covdata/.coverage.* >/dev/null 2>&1; then
@@ -60,39 +63,62 @@ runs:
         echo "| Metric | Value |" >> "$GITHUB_STEP_SUMMARY"
         echo "|--------|-------|" >> "$GITHUB_STEP_SUMMARY"
         echo "| Union coverage | **${TOTAL}%** |" >> "$GITHUB_STEP_SUMMARY"
-        echo "| Threshold | ${{ inputs.threshold }}% |" >> "$GITHUB_STEP_SUMMARY"
+        echo "| Threshold | ${THRESHOLD}% |" >> "$GITHUB_STEP_SUMMARY"
         coverage report >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
-        if [ "$TOTAL" -lt "${{ inputs.threshold }}" ]; then
-          if [ "${{ inputs.blocking }}" = "true" ]; then
-            echo "::error::coverage ${TOTAL}% < ${{ inputs.threshold }}%"; exit 1
+        if [ "$TOTAL" -lt "$THRESHOLD" ]; then
+          if [ "$BLOCKING" = "true" ]; then
+            echo "::error::coverage ${TOTAL}% < ${THRESHOLD}%"; exit 1
           else
-            echo "::warning::coverage ${TOTAL}% < ${{ inputs.threshold }}% (advisory)"
+            echo "::warning::coverage ${TOTAL}% < ${THRESHOLD}% (advisory)"
           fi
         fi
 
     - name: Diff coverage (new/changed lines)
       if: ${{ inputs.diff-coverage-threshold != '0' }}
       shell: bash
+      env:
+        THR: ${{ inputs.diff-coverage-threshold }}
+        BLOCKING: ${{ inputs.diff-coverage-blocking }}
+        BR: ${{ inputs.diff-coverage-compare-branch }}
       run: |
         pip install -q diff-cover || {
           echo "::warning::diff-cover install failed";
-          if [ "${{ inputs.diff-coverage-blocking }}" = "true" ]; then
+          if [ "$BLOCKING" = "true" ]; then
             echo "::error::diff-cover install failed on a blocking run (main/tag) — Gate NICHT stumm grün durchwinken"; exit 1;
           fi
           exit 0;
         }
-        BR="${{ inputs.diff-coverage-compare-branch }}"
-        git fetch origin "${BR#origin/}" --depth=200 2>/dev/null || true
+        # Vergleichs-Ref validieren (Audit 2026-09-03, Fund B): gegen origin/main war das
+        # Gate auf main-Pushes vakuum-gruen (HEAD == origin/main → leerer Diff → diff-cover
+        # Exit 0, GEMESSEN). reusable-ci uebergibt dort github.event.before. Ist der Ref
+        # ungueltig (0000…, force-push, nicht fetchbar) oder identisch mit HEAD, darf ein
+        # BLOCKING Lauf nicht still auf origin/main zurueckfallen (Codex R-Fix-1) — nur
+        # advisory-Laeufe fallen mit Warnung zurueck.
+        case "$BR" in origin/*) git fetch origin "${BR#origin/}" --depth=200 2>/dev/null || true ;; esac
+        if ! git rev-parse --verify --quiet "${BR}^{commit}" >/dev/null; then
+          if [ "$BLOCKING" = "true" ]; then
+            echo "::error::diff-coverage: compare ref '$BR' ist kein Commit — blocking Gate kann nicht messen"; exit 1
+          fi
+          echo "::warning::diff-coverage: compare ref '$BR' ungueltig — advisory, Fallback origin/main"
+          git fetch origin main --depth=200 2>/dev/null || true
+          BR=origin/main
+        fi
+        if [ "$(git rev-parse "${BR}^{commit}")" = "$(git rev-parse HEAD)" ]; then
+          if [ "$BLOCKING" = "true" ]; then
+            echo "::error::diff-coverage: compare ref '$BR' == HEAD — leerer Diff, Gate waere vakuum-gruen"; exit 1
+          fi
+          echo "::warning::diff-coverage: compare ref '$BR' == HEAD (leerer Diff) — advisory, keine Aussage"
+        fi
         echo "## 🔬 Diff coverage (changed vs ${BR})" >> "$GITHUB_STEP_SUMMARY"
         if diff-cover coverage.xml --compare-branch="$BR" \
-             --fail-under="${{ inputs.diff-coverage-threshold }}" \
+             --fail-under="$THR" \
              --markdown-report diff-cov.md; then
-          echo "✅ changed-line coverage ≥ ${{ inputs.diff-coverage-threshold }}%" >> "$GITHUB_STEP_SUMMARY"
+          echo "✅ changed-line coverage ≥ ${THR}%" >> "$GITHUB_STEP_SUMMARY"
         else
           tail -40 diff-cov.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
-          if [ "${{ inputs.diff-coverage-blocking }}" = "true" ]; then
-            echo "::error::diff-coverage on changed lines < ${{ inputs.diff-coverage-threshold }}%"; exit 1
+          if [ "$BLOCKING" = "true" ]; then
+            echo "::error::diff-coverage on changed lines < ${THR}%"; exit 1
           else
-            echo "::warning::diff-coverage on changed lines < ${{ inputs.diff-coverage-threshold }}% (advisory)"
+            echo "::warning::diff-coverage on changed lines < ${THR}% (advisory)"
           fi
         fi

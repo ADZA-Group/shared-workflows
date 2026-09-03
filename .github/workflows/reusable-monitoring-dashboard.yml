@@ -47,11 +47,11 @@ jobs:
       - name: "📊 Pipeline Health"
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          WORKFLOW: ${{ inputs.workflow-name }}
+          DAYS: ${{ inputs.days }}
+          APP: ${{ inputs.app-name }}
         run: |
-          REPO="${{ github.repository }}"
-          WORKFLOW="${{ inputs.workflow-name }}"
-          DAYS=${{ inputs.days }}
-          APP="${{ inputs.app-name }}"
           SINCE=$(date -d "-${DAYS} days" -u +%Y-%m-%dT%H:%M:%SZ)
 
           # Fetch workflow ID
@@ -117,9 +117,10 @@ jobs:
           echo "| Slowest | ${MAX_MIN} min |" >> $GITHUB_STEP_SUMMARY
 
       - name: "🌐 Application Health"
+        env:
+          URL: ${{ inputs.app-url }}
+          APP: ${{ inputs.app-name }}
         run: |
-          URL="${{ inputs.app-url }}"
-          APP="${{ inputs.app-name }}"
 
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 🌐 Application Health" >> $GITHUB_STEP_SUMMARY
@@ -172,13 +173,15 @@ jobs:
           done
 
       - name: "🐳 Docker Health"
+        env:
+          APP: ${{ inputs.app-name }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          APP="${{ inputs.app-name }}"
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 🐳 Container Registry" >> $GITHUB_STEP_SUMMARY
 
           # Check GHCR image
-          REPO="${{ github.repository }}"
           TAGS=$(gh api "orgs/ADZA-Group/packages/container/${REPO##*/}/versions" --jq '.[0:5] | .[] | "\(.metadata.container.tags | join(", ")) — \(.created_at | split("T")[0])"' 2>/dev/null || echo "Unable to fetch")
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "$TAGS" >> $GITHUB_STEP_SUMMARY

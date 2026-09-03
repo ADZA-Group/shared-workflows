@@ -41,6 +41,8 @@ runs:
     - name: Verify system Python
       id: py
       shell: bash
+      env:
+        WANT: ${{ inputs.python-version }}
       run: |
         for i in 1 2 3 4 5 6; do
           command -v python3 >/dev/null 2>&1 && break
@@ -50,7 +52,6 @@ runs:
           echo "::error::python3 not found on runner after retries"; exit 1
         fi
         # Gewünschte Version bevorzugen, sonst System-python3 + laute Warnung.
-        WANT="${{ inputs.python-version }}"
         PY="$(command -v python3)"
         if [ -n "$WANT" ]; then
           if command -v "python${WANT}" >/dev/null 2>&1; then
@@ -106,9 +107,12 @@ runs:
 
     - name: Create per-job venv and put it on PATH
       shell: bash
+      env:
+        SUFFIX: ${{ inputs.cache-key-suffix }}
+        INTERP: ${{ steps.py.outputs.interpreter }}
       run: |
-        VENV="$RUNNER_TEMP/venv-${{ inputs.cache-key-suffix }}"
-        "${{ steps.py.outputs.interpreter }}" -m venv "$VENV"
+        VENV="$RUNNER_TEMP/venv-${SUFFIX}"
+        "$INTERP" -m venv "$VENV"
         echo "$VENV/bin" >> "$GITHUB_PATH"
         echo "PIP_DEFAULT_TIMEOUT=90" >> "$GITHUB_ENV"
         "$VENV/bin/pip" install --upgrade pip --retries 5 --timeout 90
@@ -131,4 +135,8 @@ runs:
     - name: Install extra packages
       if: inputs.extra-packages != ''
       shell: bash
-      run: pip install --retries 5 --timeout 90 ${{ inputs.extra-packages }}
+      env:
+        EXTRA: ${{ inputs.extra-packages }}   # Liste, bewusste Wortzerlegung per read -ra (Audit 2026-09-03, Fund 1+2)
+      run: |
+        read -ra PKGS <<< "$EXTRA"
+        pip install --retries 5 --timeout 90 "${PKGS[@]}"

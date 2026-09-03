@@ -1,12 +1,18 @@
 # =================================================================
 # Reusable Weekly Cleanup — ADZA-Group
 #
-# Cleans up: failed/cancelled CI runs, Docker on LXC, temp files.
+# Cleans up: OLD CI runs (age-based), Docker on LXC, temp files.
+# Audit 2026-09-03 (Fund C): KEIN Loeschen nach Status mehr. Das fruehere
+# "failed + cancelled weg" nahm pipeline-analytics/monitoring-dashboard die
+# roten Runs aus der Datenbasis (Success-Rate ueber die Ueberlebenden =
+# geschoent) und dem Flake-Radar seine Artefakte. Jetzt: nur Runs aelter
+# als `retention-days`, und nie unter die neuesten `keep-runs`.
 # Usage:
 #   uses: ADZA-Group/shared-workflows/.github/workflows/reusable-weekly-cleanup.yml@v1
 #   with:
 #     app-name: "RecyclageApp"
 #     keep-runs: 10
+#     retention-days: 30
 # =================================================================
 
 name: "🧹 Weekly Cleanup"
@@ -21,6 +27,12 @@ on:
         required: false
         type: number
         default: 10
+        description: "Untergrenze: die neuesten N Runs bleiben immer, egal wie alt"
+      retention-days:
+        required: false
+        type: number
+        default: 30
+        description: "Runs aelter als N Tage werden geloescht (unabhaengig vom Ergebnis)"
       runner-label:
         required: false
         type: string
@@ -34,42 +46,32 @@ jobs:
     permissions:
       actions: write           # gh run list/delete
     steps:
-      - name: "Delete failed + cancelled runs"
+      - name: "Delete runs older than retention (keep newest keep-runs)"
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          APP: ${{ inputs.app-name }}
+          KEEP: ${{ inputs.keep-runs }}
+          DAYS: ${{ inputs.retention-days }}
         run: |
-          REPO="${{ github.repository }}"
-          KEEP=${{ inputs.keep-runs }}
+          CUTOFF=$(date -u -d "-${DAYS} days" +%Y-%m-%dT%H:%M:%SZ)
           DELETED=0
-
-          echo "## 🧹 ${{ inputs.app-name }} Weekly Cleanup" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          # Delete failed runs
-          FAILED=$(gh run list --repo "$REPO" --status failure --limit 50 --json databaseId --jq '.[].databaseId' 2>/dev/null || echo "")
-          for ID in $FAILED; do
-            gh run delete "$ID" --repo "$REPO" 2>/dev/null && DELETED=$((DELETED + 1))
-          done
-
-          # Delete cancelled runs
-          CANCELLED=$(gh run list --repo "$REPO" --status cancelled --limit 50 --json databaseId --jq '.[].databaseId' 2>/dev/null || echo "")
-          for ID in $CANCELLED; do
-            gh run delete "$ID" --repo "$REPO" 2>/dev/null && DELETED=$((DELETED + 1))
-          done
-
-          # Delete old runs beyond keep-limit
-          OLD=$(gh run list --repo "$REPO" --status completed --limit 100 --json databaseId --jq ".[$KEEP:] | .[].databaseId" 2>/dev/null || echo "")
+          # Neueste zuerst; ab Index KEEP und aelter als CUTOFF -> loeschen. Status egal.
+          OLD=$(gh run list --repo "$REPO" --status completed --limit 200 --json databaseId,createdAt \
+                  --jq ".[${KEEP}:] | map(select(.createdAt < \"${CUTOFF}\")) | .[].databaseId" 2>/dev/null || echo "")
           for ID in $OLD; do
             gh run delete "$ID" --repo "$REPO" 2>/dev/null && DELETED=$((DELETED + 1))
           done
-
           REMAINING=$(gh run list --repo "$REPO" --limit 100 --json databaseId --jq 'length' 2>/dev/null || echo "?")
-
-          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Runs deleted | $DELETED |" >> $GITHUB_STEP_SUMMARY
-          echo "| Runs remaining | $REMAINING |" >> $GITHUB_STEP_SUMMARY
-          echo "| Keep limit | $KEEP |" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## 🧹 ${APP} Weekly Cleanup"
+            echo ""
+            echo "| Metric | Value |"
+            echo "|--------|-------|"
+            echo "| Runs deleted (older than ${DAYS}d) | $DELETED |"
+            echo "| Runs remaining | $REMAINING |"
+            echo "| Keep floor | $KEEP |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   cleanup-runner:
     name: "🐳 Clean Runner"

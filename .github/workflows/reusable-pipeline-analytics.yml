@@ -43,10 +43,10 @@ jobs:
         id: data
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          WORKFLOW: ${{ inputs.workflow-name }}
+          DAYS: ${{ inputs.days }}
         run: |
-          REPO="${{ github.repository }}"
-          WORKFLOW="${{ inputs.workflow-name }}"
-          DAYS=${{ inputs.days }}
           SINCE=$(date -d "-${DAYS} days" -u +%Y-%m-%dT%H:%M:%SZ)
 
           # Fetch recent runs
@@ -80,22 +80,26 @@ jobs:
           echo "success_rate=$SUCCESS_RATE" >> $GITHUB_OUTPUT
 
       - name: Generate report
+        env:
+          APP: ${{ inputs.app-name }}
+          DAYS: ${{ inputs.days }}
+          TOTAL: ${{ steps.data.outputs.total }}
+          SUCCESS: ${{ steps.data.outputs.success }}
+          FAILURE: ${{ steps.data.outputs.failure }}
+          CANCELLED: ${{ steps.data.outputs.cancelled }}
+          RATE: ${{ steps.data.outputs.success_rate }}
         run: |
-          APP="${{ inputs.app-name }}"
-          DAYS=${{ inputs.days }}
-
           echo "## 📊 $APP — Pipeline Analytics (${DAYS}d)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Metrik | Wert |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Total Runs | **${{ steps.data.outputs.total }}** |" >> $GITHUB_STEP_SUMMARY
-          echo "| Success | ${{ steps.data.outputs.success }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Failure | ${{ steps.data.outputs.failure }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Cancelled | ${{ steps.data.outputs.cancelled }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Success Rate** | **${{ steps.data.outputs.success_rate }}%** |" >> $GITHUB_STEP_SUMMARY
+          echo "| Total Runs | **${TOTAL}** |" >> $GITHUB_STEP_SUMMARY
+          echo "| Success | ${SUCCESS} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Failure | ${FAILURE} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Cancelled | ${CANCELLED} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Success Rate** | **${RATE}%** |" >> $GITHUB_STEP_SUMMARY
 
-          RATE=${{ steps.data.outputs.success_rate }}
-          if [ "$RATE" -lt 80 ]; then
+          if [ "${RATE:-0}" -lt 80 ]; then
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "⚠️ Success rate below 80% — investigate failing jobs" >> $GITHUB_STEP_SUMMARY
           fi

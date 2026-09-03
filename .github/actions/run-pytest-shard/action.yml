@@ -39,6 +39,13 @@ runs:
         FLAKE_OUT: flakes-${{ inputs.shard-name }}.json
         FLAKE_SHARD: ${{ inputs.shard-name }}
         ACTION_PATH: ${{ github.action_path }}
+        # Audit 2026-09-03 (Fund 1+2): Inputs nur ueber env, nie als Shell-Quelltext.
+        # test-paths ist eine Liste — bewusste Wortzerlegung per read -ra (Array).
+        TEST_PATHS: ${{ inputs.test-paths }}
+        MARKERS: ${{ inputs.markers }}
+        COV_SRC: ${{ inputs.coverage-source }}
+        TEST_TIMEOUT: ${{ inputs.timeout }}
+        RERUNS: ${{ inputs.test-reruns }}
       run: |
         # Portable coverage data: store RELATIVE source paths so a separate
         # coverage-gate job (different workspace) can resolve them. Apps that
@@ -47,10 +54,10 @@ runs:
           printf '[run]\nrelative_files = true\n' > .coveragerc
         fi
         export COVERAGE_RCFILE=.coveragerc
-        if [ -n "${{ inputs.markers }}" ]; then
-          SELECT=(-m "${{ inputs.markers }}")
+        if [ -n "$MARKERS" ]; then
+          SELECT=(-m "$MARKERS")
         else
-          SELECT=(${{ inputs.test-paths }})
+          read -ra SELECT <<< "$TEST_PATHS"
         fi
         # Flaky mitigation: rerun failed tests (pytest-rerunfailures). NOTE: reruns do NOT
         # appear in --junitxml (verified pytest 9.1.1 + rerunfailures 16.4, xunit1+xunit2);
@@ -61,10 +68,10 @@ runs:
         # v1.5.0 fleet-weit wirkungslos. Der Import-Check unten ist die Absicherung:
         # er meldet jetzt LAUT, statt Reruns kommentarlos wegzulassen.
         RERUN=()
-        if [ "${{ inputs.test-reruns }}" != "0" ]; then
+        if [ "$RERUNS" != "0" ]; then
           pip install -q pytest-rerunfailures || echo "::warning::pytest-rerunfailures install failed — flaky reruns disabled"
           if python -c "import pytest_rerunfailures" 2>/dev/null; then
-            RERUN=(--reruns "${{ inputs.test-reruns }}" --reruns-delay 1)
+            RERUN=(--reruns "$RERUNS" --reruns-delay 1)
           else
             echo "::warning::pytest_rerunfailures not importable — running WITHOUT --reruns"
           fi
@@ -80,11 +87,11 @@ runs:
           echo "::warning::flake radar plugin missing at ${ACTION_PATH} — flake detection off (packaging error?)"
         fi
         pytest "${SELECT[@]}" \
-          --timeout=${{ inputs.timeout }} \
+          --timeout="$TEST_TIMEOUT" \
           "${RERUN[@]}" \
           "${FLAKEP[@]}" \
-          --cov=${{ inputs.coverage-source }} --cov-report= \
-          --junitxml=junit-${{ inputs.shard-name }}.xml \
+          --cov="$COV_SRC" --cov-report= \
+          --junitxml="junit-${FLAKE_SHARD}.xml" \
           -p no:cacheprovider
 
     - name: Upload coverage data

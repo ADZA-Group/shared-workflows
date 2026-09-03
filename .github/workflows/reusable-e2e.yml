@@ -84,10 +84,12 @@ jobs:
           --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - name: Provision container (git + python)
+        env:
+          SYSDEPS: ${{ inputs.install-system-deps }}
         run: |
           apt-get update -qq
           DEBS="git python3-venv python3-pip"
-          if [ "${{ inputs.install-system-deps }}" = "true" ]; then
+          if [ "$SYSDEPS" = "true" ]; then
             DEBS="$DEBS tesseract-ocr tesseract-ocr-deu tesseract-ocr-fra poppler-utils"
           fi
           apt-get install -y -qq --no-install-recommends $DEBS

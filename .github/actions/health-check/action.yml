@@ -55,14 +55,14 @@ runs:
     - name: Poll endpoint
       id: check
       shell: bash
+      env:
+        URL: ${{ inputs.url }}
+        MAX: ${{ inputs.max-retries }}
+        DELAY: ${{ inputs.retry-delay }}
+        EXPECTED: ${{ inputs.expected-status }}
       run: |
-        URL="${{ inputs.url }}"
-        MAX=${{ inputs.max-retries }}
-        DELAY=${{ inputs.retry-delay }}
-        EXPECTED=${{ inputs.expected-status }}
-
         echo "Polling $URL (max ${MAX}x${DELAY}s)..."
-        for i in $(seq 1 $MAX); do
+        for i in $(seq 1 "$MAX"); do
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$URL" 2>/dev/null || echo "000")
           TIME=$(curl -s -o /dev/null -w "%{time_total}" --max-time 10 "$URL" 2>/dev/null || echo "0")
 
@@ -80,14 +80,15 @@ runs:
             echo "time=0" >> $GITHUB_OUTPUT
             exit 1
           fi
-          sleep $DELAY
+          sleep "$DELAY"
         done
 
     - name: Security headers
       if: inputs.check-security-headers == 'true'
       shell: bash
+      env:
+        URL: ${{ inputs.url }}
       run: |
-        URL="${{ inputs.url }}"
         HEADERS=$(curl -sI --max-time 10 "$URL" 2>/dev/null)
         FAIL=0
 

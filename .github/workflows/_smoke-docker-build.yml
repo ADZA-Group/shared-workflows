@@ -1,9 +1,20 @@
 # Manual smoke for reusable-docker-build. Runnable AFTER dev is pushed.
 # push=false → exercises build + size-gate + Trivy + SBOM only (no GHCR/sign).
+# push=true  → echter Push in den Fixture-Namespace ghcr.io/adza-group/smoke-fixture:
+#              Verify-Tag → Digest → Retag → cosign/attest (Audit 2026-09-03, Fund 3).
 name: "🧪 Smoke — Docker Build"
 
 on:
   workflow_dispatch:
+    inputs:
+      push:
+        description: "Echter Push nach ghcr.io/adza-group/smoke-fixture (Verify→Retag-Pfad)"
+        type: boolean
+        default: false
+      runner-label:
+        description: "JSON-Array; self-hosted testet den cosign-Cache-Pfad"
+        type: string
+        default: '["ubuntu-latest"]'
 
 permissions:
   contents: read
@@ -15,11 +26,11 @@ jobs:
   build:
     uses: ./.github/workflows/reusable-docker-build.yml
     with:
-      runner-label: '["ubuntu-latest"]'   # validate on ubuntu (bypasses LXC-104 block)
+      runner-label: ${{ inputs.runner-label || '["ubuntu-latest"]' }}
       image-name: ghcr.io/adza-group/smoke-fixture
       context: tests/fixtures/docker
       dockerfile: tests/fixtures/docker/Dockerfile
-      push: false
+      push: ${{ inputs.push == true }}
       image-size-limit-mb: 600
       smoke-command: 'docker run --rm "$IMAGE"'
     secrets: inherit

@@ -540,18 +540,24 @@ jobs:
     continue-on-error: ${{ needs.changes.outputs.risky != 'true' }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
-      - name: Install hadolint v2.12.0
+      - name: Install hadolint v2.12.0 (sha256-verified)
+        env:
+          HADOLINT_SHA256: 56de6d5e5ec427e17b74fa48d51271c7fc0d61244bf5c90e828aab8362d55010
         run: |
+          # Audit 2026-09-03 (Fund 7): Download gegen gepinnte Summe pruefen, bevor er ausgefuehrt wird.
           curl -sSfL https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-x86_64 \
-            -o /usr/local/bin/hadolint
-          chmod +x /usr/local/bin/hadolint
+            -o "$RUNNER_TEMP/hadolint"
+          echo "${HADOLINT_SHA256}  $RUNNER_TEMP/hadolint" | sha256sum -c --quiet - || { echo "::error::hadolint checksum mismatch"; exit 1; }
+          install -m 0755 "$RUNNER_TEMP/hadolint" /usr/local/bin/hadolint
       - name: Lint
+        env:
+          DOCKERFILE: ${{ inputs.dockerfile }}
         run: |
-          [ -f "${{ inputs.dockerfile }}" ] || { echo "::notice::no Dockerfile at ${{ inputs.dockerfile }} — skipping"; exit 0; }
+          [ -f "$DOCKERFILE" ] || { echo "::notice::no Dockerfile at $DOCKERFILE — skipping"; exit 0; }
           # --failure-threshold error: DL3008 (pin apt versions) & friends are *warnings*. They are
           # printed (informational) but must not fail the job — pinning apt versions contradicts the
           # ADZA "always newest stable" stack-policy. Real errors (DLxxxx error-level) still fail.
-          hadolint "${{ inputs.dockerfile }}" --format tty --failure-threshold error
+          hadolint "$DOCKERFILE" --format tty --failure-threshold error
 
   code-quality:
     name: "📊 Code Quality"
@@ -808,8 +814,15 @@ jobs:
         with:
           threshold: ${{ inputs.coverage-threshold }}
           blocking: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
-          diff-coverage-threshold: ${{ inputs.diff-coverage-threshold }}
-          diff-coverage-compare-branch: "origin/main"
+          # Tag-Pushes: Diff-Coverage AUS (0). Ein Release-Tag zeigt auf den main-Commit,
+          # der Diff gegen origin/main ist leer — das Gate haette dort nur blockieren oder
+          # vakuum-gruen sein koennen (Codex-Fund R1-E2). Der Code wurde auf main gemessen.
+          diff-coverage-threshold: ${{ startsWith(github.ref, 'refs/tags/') && 0 || inputs.diff-coverage-threshold }}
+          # Audit 2026-09-03 (Fund B): auf main-PUSHES ist origin/main == HEAD → leerer Diff →
+          # diff-cover Exit 0 (GEMESSEN) → das einzige blocking Gate konnte nie failen. Dort
+          # jetzt gegen den Stand VOR dem Push (github.event.before); Composite lehnt einen
+          # ungueltigen/identischen Ref auf blocking-Laeufen ab statt still gruen zu sein.
+          diff-coverage-compare-branch: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') && github.event.before || 'origin/main' }}
           diff-coverage-blocking: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
 
   test-results:
@@ -1213,8 +1226,9 @@ jobs:
 
       - name: Auto-rollback on failure
         if: steps.staging-check.outcome == 'failure'
+        env:
+          IMAGE: ${{ inputs.image-name != '' && inputs.image-name || format('ghcr.io/adza-group/{0}', inputs.app-name) }}
         run: |
-          IMAGE="${{ inputs.image-name != '' && inputs.image-name || format('ghcr.io/adza-group/{0}', inputs.app-name) }}"
           echo "::warning::staging unhealthy — attempting rollback :staging-previous -> :staging"
           if docker buildx imagetools inspect "${IMAGE}:staging-previous" >/dev/null 2>&1; then
             docker buildx imagetools create --tag "${IMAGE}:staging" "${IMAGE}:staging-previous"
@@ -1268,22 +1282,34 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # Audit 2026-09-03 (Fund 6): kein continue-on-error — ein fehlgeschlagenes Backup
+      # blockt die Promotion, sonst rollt verify-prod spaeter auf ein veraltetes :previous.
+      # "Tag fehlt" (erster gated Run) wird explizit von "inspect fehlgeschlagen" getrennt.
       - name: "Backup :latest -> :previous"
-        continue-on-error: true
+        env:
+          IMAGE: ${{ inputs.image-name != '' && inputs.image-name || format('ghcr.io/adza-group/{0}', inputs.app-name) }}
         run: |
-          IMAGE="${{ inputs.image-name != '' && inputs.image-name || format('ghcr.io/adza-group/{0}', inputs.app-name) }}"
-          if docker buildx imagetools inspect "${IMAGE}:latest" >/dev/null 2>&1; then
+          set +e
+          OUT=$(docker buildx imagetools inspect "${IMAGE}:latest" 2>&1); RC=$?
+          set -e
+          if [ "$RC" -eq 0 ]; then
             docker buildx imagetools create --tag "${IMAGE}:previous" "${IMAGE}:latest"
             echo "::notice::backed up :latest -> :previous"
-          else
+          elif printf '%s' "$OUT" | grep -qiE 'manifest unknown|MANIFEST_UNKNOWN|no such manifest' \
+               || printf '%s' "$OUT" | grep -qF "${IMAGE}:latest: not found"; then
+            # NUR Registry-404 — generisches "not found" traf auch Credential-Helper-Fehler.
             echo "::notice::no existing :latest to back up (first gated run)"
+          else
+            echo "::error::imagetools inspect ${IMAGE}:latest failed (rc=$RC) — Backup unklar, Promotion geblockt"; printf '%s\n' "$OUT"; exit 1
           fi
       - name: "Promote :candidate -> :latest"
+        env:
+          IMAGE: ${{ inputs.image-name != '' && inputs.image-name || format('ghcr.io/adza-group/{0}', inputs.app-name) }}
+          CANDIDATE: ${{ needs.docker-build.outputs.candidate-tag }}
+          SHA: ${{ github.sha }}
         run: |
-          IMAGE="${{ inputs.image-name != '' && inputs.image-name || format('ghcr.io/adza-group/{0}', inputs.app-name) }}"
-          CANDIDATE="${{ needs.docker-build.outputs.candidate-tag }}"
           if [ -z "$CANDIDATE" ]; then
-            CANDIDATE="${IMAGE}:candidate-${{ github.sha }}"
+            CANDIDATE="${IMAGE}:candidate-${SHA}"
             echo "::notice::candidate-tag output empty — reconstructed ${CANDIDATE}"
           fi
           docker buildx imagetools create --tag "${IMAGE}:latest" "$CANDIDATE"
@@ -1325,8 +1351,9 @@ jobs:
 
       - name: Auto-rollback on failure
         if: steps.prod-check.outcome == 'failure'
+        env:
+          IMAGE: ${{ inputs.image-name != '' && inputs.image-name || format('ghcr.io/adza-group/{0}', inputs.app-name) }}
         run: |
-          IMAGE="${{ inputs.image-name != '' && inputs.image-name || format('ghcr.io/adza-group/{0}', inputs.app-name) }}"
           echo "::warning::prod unhealthy — attempting rollback :previous → :latest"
           if docker buildx imagetools inspect "${IMAGE}:previous" >/dev/null 2>&1; then
             docker buildx imagetools create --tag "${IMAGE}:latest" "${IMAGE}:previous"
@@ -1339,14 +1366,17 @@ jobs:
         if: steps.prod-check.outcome == 'failure'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APP: ${{ inputs.app-name }}
+          PROD_URL: ${{ inputs.prod-url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           gh issue create \
-            --title "🚨 Prod verify failed — ${{ inputs.app-name }} @ ${GITHUB_SHA:0:7}" \
+            --title "🚨 Prod verify failed — ${APP} @ ${GITHUB_SHA:0:7}" \
             --body "## Prod health check failed
-          App: \`${{ inputs.app-name }}\`
-          URL: ${{ inputs.prod-url }}
-          SHA: ${{ github.sha }}
-          Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+          App: \`${APP}\`
+          URL: ${PROD_URL}
+          SHA: ${GITHUB_SHA}
+          Run: ${RUN_URL}" \
             --label "incident,production" || true
 
       - name: Fail on prod unhealthy
@@ -1417,12 +1447,14 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Summary
+        env:
+          APP: ${{ inputs.app-name }}
+          START: ${{ needs.changes.outputs.start_time }}
         run: |
-          START="${{ needs.changes.outputs.start_time }}"
           NOW=$(date +%s)
           DUR=$(( NOW - ${START:-$NOW} ))
           {
-            echo "## 🚀 CI Telemetry — ${{ inputs.app-name }}"
+            echo "## 🚀 CI Telemetry — ${APP}"
             echo "| Job | Result |"
             echo "|-----|--------|"
             echo "| lint-python | ${{ needs.lint-python.result }} |"
@@ -1461,8 +1493,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
+          APP: ${{ inputs.app-name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          BODY="## 🚀 CI Summary — \`${{ inputs.app-name }}\`
+          BODY="## 🚀 CI Summary — \`${APP}\`
           | Job | Result |
           |-----|--------|
           | lint | ${{ needs.lint-python.result }} |
@@ -1471,7 +1505,7 @@ jobs:
           | coverage | ${{ needs.coverage.result }} |
           | docker | ${{ needs.docker-build.result }} |
 
-          [View run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          [View run](${RUN_URL})"
           COMMENT_ID=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
             --jq '[.[] | select(.body | startswith("## 🚀 CI Summary"))] | .[0].id // empty' 2>/dev/null || echo "")
           if [ -n "$COMMENT_ID" ]; then
