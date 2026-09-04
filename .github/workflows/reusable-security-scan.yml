@@ -198,8 +198,14 @@ jobs:
               state = f"nicht auswertbar (step {outcome}, file {'ok' if p.exists() else 'fehlt'})"
           else:
               try:
-                  n = sum(len(r.get("results", [])) for r in json.load(open(p, encoding="utf-8")).get("runs", []))
-                  state = f"{n} Finding(s)" if n else "0 Findings"
+                  # Semgrep schreibt auch per `nosemgrep` unterdrueckte Treffer in die SARIF
+                  # (mit `suppressions`, kind inSource). Die zaehlen NICHT als Findings — sie
+                  # loesen weder `--error` noch das Gate aus (rechnungsapp 04.09.: 45 in der
+                  # SARIF, 3 aktiv). Getrennt ausweisen statt verschweigen.
+                  results = [r for run in json.load(open(p, encoding="utf-8")).get("runs", []) for r in run.get("results", [])]
+                  n = sum(1 for r in results if not r.get("suppressions"))
+                  s_n = len(results) - n
+                  state = (f"{n} Finding(s)" if n else "0 Findings") + (f" (+{s_n} per nosemgrep unterdrueckt)" if s_n else "")
               except Exception as e:
                   state = f"nicht auswertbar ({e})"
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as s:
