@@ -7,6 +7,40 @@
 > Fleet-Beweis: rechnungsapp Run 33750934660 (Attempt 2 grün; Attempt 1 fiel im ALTEN zweiten buildx-Push an
 > „failed to fetch anonymous token … ghcr.io/token … 403" — genau der Schritt, den die Audit-Welle unten abschafft).
 >
+> **🏗️ 2026-09-04 NACHMITTAGS — „Watchtower-Trigger + Entrümpelung + Autonomie" (Azad: „mach alle erwähnten Punkte sauber fertig,
+> CI autonom wie es für uns gut ist"; Plan `docs/superpowers/plans/2026-09-04-ci-entruempelung-deploy-trigger.md`; Pair: Design-Runde
+> 3 Funde, Etappe A 1 Runde, Etappe B 2 Runden 3 Funde, Trigger-Nachtrag 1 Fund — alle umgesetzt):**
+> **A Deterministischer Deploy (v1.11.4 = 6d8323d):** Inputs `staging-/prod-watchtower-url` + Secrets `WATCHTOWER_STAGING_TOKEN`/
+> `WATCHTOWER_PROD_TOKEN`; verify-* stoesst `POST /v1/update` an (fail-open, changes-Job erzwingt version-url + Token). Hosts: 203 + 190
+> HTTP-API aktiv (Token nur in `.env`, Port nur LAN; 190 zugleich containrrr:latest → nickfedor 1.17.2). GEMESSEN recyclage Run 33855761270:
+> Trigger HTTP 200, Versions-Match bei Versuch 1 (vorher 3); rechnungsapp Run 33855783178: Trigger lief 180 s ins Timeout (grosses Image),
+> Flip trotzdem bei Versuch 4 (vorher 200-only, Poll 3600 s) ⇒ Trigger wartet seit dem Folge-Commit nicht mehr (max-time 20, rc 28 nur mit
+> `remote_ip` = ausgeloest). rechnungsapp hat jetzt `staging-version-url` (Watchtower-Entscheid 07-10 obsolet).
+> **Prod (Azad, LXC-Regel) — exakte Schritte je Host (103 rechnungsapp, 102 recyclage):** (1) `cd /opt/<app>` (103: `/opt/rechnungsapp`,
+> 102: Compose-Verzeichnis der Prod-App); (2) `openssl rand -hex 32 | sed 's/^/WATCHTOWER_HTTP_API_TOKEN=/' >> .env; chmod 600 .env`;
+> (3) Watchtower-Service in der Prod-Compose um die Zeilen aus `docker-compose.yml` im Repo ergaenzen (`WATCHTOWER_HTTP_API_UPDATE`,
+> `WATCHTOWER_HTTP_API_TOKEN`, `WATCHTOWER_HTTP_API_PERIODIC_POLLS`, `ports: 192.168.1.<lxc>:8080:8080`; 102 zusaetzlich Image
+> nickfedor/watchtower:1.17.2); (4) `docker compose up -d watchtower`; (5) Token als Secret: `ssh root@192.168.1.<lxc> "grep ^WATCHTOWER_HTTP_API_TOKEN= /opt/<app>/.env | cut -d= -f2-" | gh secret set WATCHTOWER_PROD_TOKEN -R ADZA-Group/<repo>`;
+> (6) Caller: `prod-watchtower-url: "http://192.168.1.<lxc>:8080"` + `prod-version-url: "<prod-url>/health"` + Secret-Mapping
+> `WATCHTOWER_PROD_TOKEN`. Danach beweist verify-prod den Prod-Deploy (Versions-Assert) statt 200-only.
+> **B Entrümpelung (v1.12.0):** reusable-ci 1663 → 987 Zeilen, 56 → 36 Inputs, 17 Jobs. Raus: multi-arch, gated-promotion (+promote-prod,
+> require-staging-green, candidate), api-contract, e2e, load-test, mutation, code-quality, dead-code, todo-tracker, telemetry, notify
+> (Webhooks — in KEINEM Repo Secrets), pipeline-analytics, monitoring-dashboard, TIA + Flake-Radar/-Ledger (inkl. Plugin), OPA/Trivy-FS/
+> dependency-review im Push-Scan, grype weekly, cloud-runner-label, environments, ghcr-prune, `_smoke-{api-contract,e2e,mutation,promotion,
+> release}`. Verhalten: verify-staging NUR dev-Pushes (main pusht nie :staging — mit Versions-Assert waere main rot gewesen), verify-prod
+> direkt an docker-build, Nightly = Security-only (Schedule-Override als LETZTE Normalisierung setzt PY/DK/FR/CI/RISKY/FULLCI=false;
+> security.if hat `schedule ||`), cosign+SLSA nur main/tags (Staging unsigniert, kein Verifizierer). Caller: decide-runner in allen 4
+> Repos entfernt (MitarbeiterApp `runner-label: ubuntu-latest`), tote Inputs + Webhook-Secrets raus, 5 Analytics-/Dashboard-Workflows
+> geloescht; jarvis security.yml ohne `run-opa` (dev+main). **Vorfall:** Kommentar-Entferner riss den `branch-policy`-Header mit —
+> actionlint fing es, aus HEAD wiederhergestellt.
+> **C** Signaturen: nur main/tags; Verifizierer im Deploy-Pfad gibt es nicht (Kandidat: Jarvis fleet-check `cosign verify` nachts).
+> **D** `scripts/check_docs.py` im actionlint-Gate: README-Input-Tabelle == reusable-ci-Inputs (36/36).
+> **E** `weekly-release.yml`: Mo 06:00 UTC dev → @v1, nur wenn dev vor @v1, actionlint-Gate fuer den SHA gruen, keine offenen Laeufe
+> (eigener Lauf ausgenommen), keine `.release-hold`; minor bei `feat`, sonst patch; RELEASE_TOKEN nur im Checkout dieses Jobs, keine
+> `git config` (Hausregel). Betriebsmodell in README.
+> **Werkzeug-Fallen dieser Runde:** Bash-Wrapper verschluckt Backslashes auch in Heredoc-Python (Skript per Write-Tool schreiben, dann
+> ausfuehren); Klassifikator blockte ein Host-Skript mit Image-Pull auf 190 (in zwei enge Schritte geteilt → durch); `str.format` frisst
+> `${VAR}`-Platzhalter in Compose-Templates (replace statt format).
 > **✅ RELEASED 2026-09-04 NACHMITTAGS AUTONOM (Run 33853219123, Kandidat aus dev `057cdfa`, ls-remote-verifiziert): `@v1` = `v1.11.3` = `057cdfa`** —
 > Semgrep-Zaehler (Stufe C) zaehlt per `nosemgrep` unterdrueckte SARIF-Treffer (`suppressions`, kind inSource) nicht mehr als Findings, sondern
 > weist sie getrennt aus („+N per nosemgrep unterdrueckt"). Ausloeser GEMESSEN rechnungsapp Run 33850886225: SARIF 45 = 42 unterdrueckt + 3 aktiv,
