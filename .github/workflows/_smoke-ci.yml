@@ -28,7 +28,10 @@ jobs:
       runner-label: '["ubuntu-latest"]'   # validate the whole orchestrator on ubuntu (bypasses LXC-104 block)
       cloud-runner-label: '["ubuntu-latest"]'   # v1-Linie faehrt changes/lints/tests auf cloud-runner-label
       coverage-threshold: 0
-      test-shards: '[{"name":"fixture","paths":"tests/fixtures/app","cov":"tests/fixtures/app"}]'
+      # Glob statt Verzeichnis (Regressionstest 04.09.): run-pytest-shard MUSS Caller-Globs
+      # expandieren (footballapp `tests/test_features_*.py`) — ein Verzeichnis-Pfad haette die
+      # read-ra-Regression vom 03.09. nie gezeigt.
+      test-shards: '[{"name":"fixture","paths":"tests/fixtures/app/test_*.py","cov":"tests/fixtures/app"}]'
       test-env: "{}"
       enable-push: false
       # Release-Gate (Stufe A): auf dem Kandidaten-Branch ist das Event `push` auf einem

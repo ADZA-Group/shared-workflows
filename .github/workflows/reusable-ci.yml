@@ -736,6 +736,10 @@ jobs:
       python-version: ${{ inputs.python-version }}
       runner-label: ${{ inputs.cloud-runner-label }}
       run-dependency-review: ${{ inputs.run-dependency-review }}
+      # CodeQL nur nightly + main/tags (Policy 2026-09-04, Stufe 6): GEMESSEN 183 s + 158 s
+      # pro vollem Lauf, ohne GHAS advisory (SARIF-Artefakt + Zaehler bleiben). dispatch auf
+      # main zaehlt als main. Reversibel: Zeile entfernen ⇒ Default true.
+      run-codeql: ${{ github.event_name == 'schedule' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
       # Risk-Gating Stufe B (aktiv seit v1.10.5): risky-Pfad ⇒ dual-gated
       # Security-Steps (bandit) BLOCKING auch auf dev-Pushes.
       force-blocking: ${{ needs.changes.outputs.risky == 'true' }}
@@ -1247,8 +1251,10 @@ jobs:
     name: "🔍 Verify Staging"
     environment: ${{ inputs.staging-environment }}
     needs: [docker-build]
+    # enable-push ist Pflicht (Codex, Stufe 4): ein erfolgreicher Build OHNE Push beweist
+    # keinen Deploy — verify-staging wuerde sonst gegen ein altes Staging pruefen.
     if: >-
-      ${{ always() && inputs.staging-url != '' && inputs.deploy-prod &&
+      ${{ always() && inputs.staging-url != '' && inputs.deploy-prod && inputs.enable-push &&
       needs.docker-build.result == 'success' &&
       github.event_name == 'push' }}
     runs-on: ${{ fromJSON(inputs.runner-label) }}
@@ -1395,11 +1401,14 @@ jobs:
     name: "✅ Verify Prod"
     environment: ${{ inputs.prod-environment }}
     needs: [docker-build, require-staging-green, promote-prod]
+    # Nur bei push (Codex, Stufe 4): bei schedule/dispatch auf main wird nichts deployt —
+    # ein Health-Flake haette dann :previous ueber :latest gerollt, ohne dass ein neues
+    # Image dahinterstand (footballapp Nightly laeuft auf main).
     if: >-
-      ${{ always() && inputs.prod-url != '' && inputs.deploy-prod &&
+      ${{ always() && inputs.prod-url != '' && inputs.deploy-prod && inputs.enable-push &&
       needs.docker-build.result == 'success' &&
       (needs.promote-prod.result == 'success' || (!inputs.gated-promotion && needs.promote-prod.result == 'skipped')) &&
-      github.ref == 'refs/heads/main' }}
+      github.ref == 'refs/heads/main' && github.event_name == 'push' }}
     runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 25
     permissions:

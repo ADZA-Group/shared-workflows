@@ -71,6 +71,28 @@ jobs:
           fi
           { echo "sha=$SHA"; echo "version=$VERSION"; echo "old_v1=${OLD:-none}"; } >> "$GITHUB_OUTPUT"
           echo "candidate ok: $VERSION -> $SHA (old v1: ${OLD:-none})"
+      # RELEASE_TOKEN VORAB pruefen (Stufe 3): sonst laufen 15 min Smokes und der Tag-Job
+      # faellt am Ende ueber ein abgelaufenes/fehlendes PAT. Jeder Nicht-2xx blockt
+      # (Codex: 403/Proxy-Fehler duerfen nicht fail-open sein); fehlender Ablauf-Header
+      # wird als "kein Ablaufdatum gemeldet" ausgewiesen, nicht als "unbegrenzt".
+      - name: Check RELEASE_TOKEN (present, valid, expiry)
+        env:
+          TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          [ -n "$TOKEN" ] || { echo "::error::Secret RELEASE_TOKEN fehlt — Tag-Push wuerde am Ruleset scheitern (fine-grained PAT, Contents r/w)"; exit 1; }
+          HDR=$(mktemp)
+          CODE=$(curl -sS -o /dev/null -D "$HDR" -w '%{http_code}' -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" https://api.github.com/user || echo 000)
+          case "$CODE" in 2*) ;; *) echo "::error::RELEASE_TOKEN ungueltig oder API-Fehler (HTTP $CODE) — Release geblockt"; exit 1 ;; esac
+          EXP=$(tr -d '\r' < "$HDR" | awk -F': ' 'tolower($1)=="github-authentication-token-expiration"{print $2}')
+          if [ -z "$EXP" ]; then
+            echo "::warning::RELEASE_TOKEN: kein Ablauf-Header gemeldet (Token-Typ ohne Ablaufdatum?)"
+          else
+            LEFT=$(( ( $(date -d "$EXP" +%s) - $(date +%s) ) / 86400 ))
+            echo "RELEASE_TOKEN laeuft ab: $EXP ($LEFT Tage)"
+            [ "$LEFT" -ge 14 ] || echo "::warning::RELEASE_TOKEN laeuft in ${LEFT} Tagen ab — neues PAT setzen (gh secret set RELEASE_TOKEN)"
+            [ "$LEFT" -ge 0 ] || { echo "::error::RELEASE_TOKEN abgelaufen"; exit 1; }
+          fi
+          rm -f "$HDR"
 
   smoke-ci:
     name: "🧪 Smoke — Orchestrator (candidate refs)"

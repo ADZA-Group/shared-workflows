@@ -130,8 +130,10 @@ runs:
           BODY=$(curl -s -D "$HDRS" --max-time 10 "$VURL" 2>/dev/null) || BODY=""
           HDR=$(tr -d '\r' < "$HDRS" | awk -F': ' 'tolower($1)=="x-app-version"{print $2}')
           rm -f "$HDRS"
+          # Akzeptierte JSON-Felder: sha (recyclage), commit (rechnungsapp, Kurz-SHA), version.
+          # Reihenfolge wichtig: `version` ist bei rechnungsapp "0.9.5" — nur Fallback.
           GOT=$(printf '%s' "$BODY" | python3 -c \
-            "import sys,json; s=sys.stdin.read(); d=json.loads(s) if s.strip() else {}; print(d.get('sha') or d.get('version') or '')" \
+            "import sys,json; s=sys.stdin.read(); d=json.loads(s) if s.strip() else {}; print(d.get('sha') or d.get('commit') or d.get('version') or '')" \
             2>/dev/null) || GOT=""
           # Explizites if statt '[ ] &&' — als LETZTE Zeile der Funktion wuerde der
           # fehlschlagende -z-Test (= GOT vorhanden = ERFOLGSFALL!) den Funktions-

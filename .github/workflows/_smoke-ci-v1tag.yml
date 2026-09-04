@@ -6,6 +6,11 @@ name: "🧪 Smoke — CI @v1 (aktuelles Release)"
 
 on:
   workflow_dispatch:
+  # Woechentlicher Drift-Waechter (Stufe 3, 2026-09-04): prueft das RELEASED @v1 gegen die
+  # Aussenwelt (Action-Deprecations, Registry-/Tool-Aenderungen), ohne dass jemand dispatcht.
+  # schedule laeuft nur vom Default-Branch (dev), der Aufruf zielt aber explizit auf @v1.
+  schedule:
+    - cron: "0 5 * * 0"
 
 permissions:
   actions: read          # security/codeql nested job claims actions:read (codeql-action#2117); caller must grant it or startup_failure

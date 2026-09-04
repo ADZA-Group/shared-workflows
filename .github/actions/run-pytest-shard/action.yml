@@ -57,7 +57,17 @@ runs:
         if [ -n "$MARKERS" ]; then
           SELECT=(-m "$MARKERS")
         else
-          read -ra SELECT <<< "$TEST_PATHS"
+          # Unquoted mit Absicht: Wortzerlegung UND Pathname-Expansion (Caller-Globs wie
+          # `tests/test_features_*.py`, footballapp). `read -ra` liess den Glob woertlich
+          # stehen (Regression 03.09., GEMESSEN). Kein eval — nur Bash-Globbing auf Daten.
+          # shellcheck disable=SC2206
+          SELECT=($TEST_PATHS)
+          # Jeder Eintrag muss existieren: ein Glob ohne Treffer bleibt woertlich stehen und
+          # wuerde pytest "file not found" liefern — hier klar benannt statt kryptisch (Codex).
+          [ "${#SELECT[@]}" -gt 0 ] || { echo "::error::test-paths leer nach Expansion"; exit 1; }
+          for p in "${SELECT[@]}"; do
+            [ -e "$p" ] || { echo "::error::test path '$p' existiert nicht (Glob ohne Treffer / Tippfehler im Caller-Shard)"; exit 1; }
+          done
         fi
         # Flaky mitigation: rerun failed tests (pytest-rerunfailures). NOTE: reruns do NOT
         # appear in --junitxml (verified pytest 9.1.1 + rerunfailures 16.4, xunit1+xunit2);
