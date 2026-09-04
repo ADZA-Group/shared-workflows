@@ -33,7 +33,9 @@
 > `gh api -X PUT orgs/ADZA-Group/actions/permissions/selected-actions -F github_owned_allowed=true -F verified_allowed=true --input allowlist.json`
 > mit `patterns_allowed` = obige Liste als `owner/repo@*` (MitarbeiterApp ist User-Repo, nicht betroffen). Nicht angewendet: Blast-Radius fleetweit.
 > **cosign-Cache-Beweis:** footballapp taugt nicht (`sign-image: false`, Attestations = paid); recyclage-Dockerfile-Kommentar `a086bce` (risky ⇒
-> nicht-light, self-hosted) ist der Beweistraeger — Ergebnis s. naechster Block.
+> nicht-light, self-hosted) ist der Beweistraeger. **GEMESSEN Run 33848959344 (proxmox-runner-3):** „Install cosign (self-hosted, cached +
+> verified)" success, „Cosign sign (keyless)" success, „SLSA build provenance" success, Verify Staging success — der cosign-Cache-Pfad auf 104
+> (Fund D) ist damit real durchlaufen; der letzte offene Beweis des Audits ist geschlossen.
 > **Opt-in-Gate GEMESSEN (Wegwerf-Branch `proof-blocking` mit Semgrep-Kanarienvogel, `_smoke-security-scan` per Dispatch, danach geloescht):**
 > (i) `blocking-scanners=semgrep` + `force-blocking=true` → Run 33849433971: Semgrep-Job ROT (`--error`), Summary „BLOCKING … 3 Finding(s)";
 > Bandit ROT (Dual-Gate wie bisher), Trivy-fs gruen (nicht in der Liste). (ii) `force-blocking=true` ohne Liste → Run 33849512854: Semgrep
