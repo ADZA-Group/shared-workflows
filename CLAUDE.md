@@ -7,6 +7,10 @@
 > Fleet-Beweis: rechnungsapp Run 33750934660 (Attempt 2 grün; Attempt 1 fiel im ALTEN zweiten buildx-Push an
 > „failed to fetch anonymous token … ghcr.io/token … 403" — genau der Schritt, den die Audit-Welle unten abschafft).
 >
+> **✅ RELEASED 2026-09-04 NACHMITTAGS AUTONOM (Run 33853219123, Kandidat aus dev `057cdfa`, ls-remote-verifiziert): `@v1` = `v1.11.3` = `057cdfa`** —
+> Semgrep-Zaehler (Stufe C) zaehlt per `nosemgrep` unterdrueckte SARIF-Treffer (`suppressions`, kind inSource) nicht mehr als Findings, sondern
+> weist sie getrennt aus („+N per nosemgrep unterdrueckt"). Ausloeser GEMESSEN rechnungsapp Run 33850886225: SARIF 45 = 42 unterdrueckt + 3 aktiv,
+> Konsole „3 findings", Summary sagte „45 Finding(s)". Gate/`--error` waren nie betroffen (Semgrep ignoriert nosemgrep-Treffer selbst).
 > **✅ RELEASED 2026-09-04 MITTAGS AUTONOM (Run 33849447536, Kandidat aus dev `f92e6cf`, ls-remote-verifiziert): `@v1` = `v1.11.2` = `f92e6cf`** — Inhalt: Opt-in Dual-Gate, `dast-blocking`, grype-sha256, Dependabot-Bumps (PR #16), Doku. Kandidaten-Branch vom Workflow geloescht.
 > **🧹 2026-09-04 MITTAGS — „alle offenen Punkte weiter" (Pair Claude+Codex, 2 Runden, 2 Doku-Funde umgesetzt), dev `f92e6cf`:**
 > **Opt-in Dual-Gate pro App:** `security-blocking-scanners` (CSV aus semgrep,trivy-fs,pip-audit) + `dast-blocking` in reusable-ci; Default
