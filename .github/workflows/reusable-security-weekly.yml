@@ -108,11 +108,15 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Install + run Grype
+        env:
+          GRYPE_SHA256: 3fad92940650e514c0aa2dad83526942a055e210cec09a8a59d9c024adc2b90e   # grype_0.115.0_linux_amd64.tar.gz (Audit 2026-09-03 Fund 7, Rest 04.09.)
         run: |
-          # install.sh + grype-Version auf einen unveränderlichen Release-Tag gepinnt
-          # (war @main = mutabel → ungeprüfter Code auf self-hosted Runner). (Audit P3)
-          curl -sSfL https://raw.githubusercontent.com/anchore/grype/v0.115.0/install.sh | sh -s -- -b /usr/local/bin v0.115.0
-          grype dir:. --output table 2>&1 | tee /tmp/grype.txt || true
+          # Release-Tarball mit sha256-Pin statt install.sh (Skriptinhalt war ungeprueft) — gleiches
+          # Muster wie osv-scanner/gitleaks: nach $RUNNER_TEMP, nie ueber PATH-Shortcuts.
+          curl -sSfL https://github.com/anchore/grype/releases/download/v0.115.0/grype_0.115.0_linux_amd64.tar.gz -o "$RUNNER_TEMP/grype.tgz"
+          echo "${GRYPE_SHA256}  $RUNNER_TEMP/grype.tgz" | sha256sum -c --quiet - || { echo "::error::grype checksum mismatch"; exit 1; }
+          tar -xzf "$RUNNER_TEMP/grype.tgz" -C "$RUNNER_TEMP" grype
+          "$RUNNER_TEMP/grype" dir:. --output table 2>&1 | tee /tmp/grype.txt || true
           {
             echo "## 🔐 Grype"
             echo '```'

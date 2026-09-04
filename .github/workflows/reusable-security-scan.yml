@@ -1,10 +1,13 @@
 # ═══════════════════════════════════════════════════════════════
 # Reusable Security Scanning Workflow — ADZA-Group (senior-grade)
 #
-# Jobs: gitleaks (hard) · Bandit HIGH-only (blocks main/tags) · Semgrep (advisory)
-#       · Trivy FS+IaC (advisory) · pip-audit (advisory) · CodeQL (advisory)
-#       · dependency-review (PR, advisory) · OPA/conftest (advisory)
-# Gate policy: gitleaks + bandit-HIGH ALWAYS block; all SAST/SCA advisory always.
+# Jobs: gitleaks (hard) · Bandit HIGH-only (blocks main/tags) · Semgrep (advisory by default)
+#       · Trivy FS (advisory by default) + IaC (advisory) · pip-audit (advisory by default)
+#       · CodeQL (advisory) · dependency-review (PR, advisory) · OPA/conftest (advisory)
+# Gate policy: gitleaks blockt immer; Bandit-HIGH blockt auf main/tags und bei force-blocking
+# (risky), sonst advisory (Codex-Fund R2). Semgrep / Trivy-fs / pip-audit sind advisory,
+# AUSSER der Caller nennt sie in `blocking-scanners` (Opt-in Dual-Gate 2026-09-04: blockt auf
+# main/tags und bei force-blocking, advisory auf PR/dev). Alles andere advisory always.
 # Debian-13 self-hosted safe: uses setup-python-deps composite (NOT actions/setup-python).
 #
 # Usage:
@@ -29,7 +32,12 @@ on:
         required: false
         type: boolean
         default: false
-        description: "Risk-adaptives Gating: dual-gated Steps (bandit) werden BLOCKING unabhängig vom Branch. Immer-advisory-Steps (semgrep/pip-audit/…) bleiben advisory — deren Advisory-Status ist eine bewusste Entscheidung (Semgrep-Rauschen blockte main, v1.3.x)."
+        description: "Risk-adaptives Gating: dual-gated Steps (bandit) werden BLOCKING unabhängig vom Branch. Immer-advisory-Steps (semgrep/pip-audit/…) bleiben advisory — deren Advisory-Status ist eine bewusste Entscheidung (Semgrep-Rauschen blockte main, v1.3.x) — es sei denn, sie stehen in blocking-scanners."
+      blocking-scanners:
+        required: false
+        type: string
+        default: ""
+        description: "Opt-in Dual-Gate (2026-09-04), kommagetrennt OHNE Leerzeichen aus {semgrep,trivy-fs,pip-audit}: die genannten Scanner blocken auf main/tags und bei force-blocking; auf PR/dev bleiben sie advisory. Leer = Default (alles advisory). reusable-ci validiert die Namen vorab."
       run-gitleaks:
         required: false
         type: boolean
@@ -154,15 +162,21 @@ jobs:
       # nie "0 Findings" (Codex: Findings und Werkzeugfehler getrennt halten).
       - name: Semgrep scan
         id: semgrep
-        continue-on-error: true
+        # Opt-in Dual-Gate (2026-09-04): steht `semgrep` in blocking-scanners, blockt der Step auf
+        # main/tags oder bei force-blocking (risky) — sonst advisory wie bisher. `--error` laesst
+        # semgrep bei Findings mit Exit 1 enden (ohne die Flag ist der Exit auch mit Findings 0).
+        continue-on-error: ${{ !(contains(format(',{0},', inputs.blocking-scanners), ',semgrep,') && (inputs.force-blocking || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))) }}
         env:
           SEMGREP_CONFIGS: ${{ inputs.semgrep-configs }}
+          BLOCKING: ${{ contains(format(',{0},', inputs.blocking-scanners), ',semgrep,') && (inputs.force-blocking || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
         run: |
           CONFIGS=""
           for cfg in $SEMGREP_CONFIGS; do
             CONFIGS="$CONFIGS --config $cfg"
           done
-          semgrep scan $CONFIGS \
+          ERRFLAG=""
+          if [ "$BLOCKING" = "true" ]; then ERRFLAG="--error"; fi
+          semgrep scan $CONFIGS $ERRFLAG \
             --severity ERROR --severity WARNING \
             --exclude tests --exclude .venv --metrics off \
             --sarif --output semgrep.sarif
@@ -170,14 +184,17 @@ jobs:
         if: always()
         env:
           TOOL_OUTCOME: ${{ steps.semgrep.outcome }}
+          MODE: ${{ contains(format(',{0},', inputs.blocking-scanners), ',semgrep,') && (inputs.force-blocking || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && 'BLOCKING' || 'advisory' }}
         run: |
           python3 - <<'PY'
           import json, os, pathlib
           outcome = os.environ.get("TOOL_OUTCOME")
+          mode = os.environ.get("MODE", "advisory")
           p = pathlib.Path("semgrep.sarif")
           # Nur ein ERFOLGREICHER Lauf darf gezaehlt werden: eine leere/partielle SARIF nach
-          # Tool-Abbruch hiesse sonst "0 Findings" (Codex-Fund C1).
-          if outcome != "success" or not p.exists():
+          # Tool-Abbruch hiesse sonst "0 Findings" (Codex-Fund C1). Im BLOCKING-Modus endet der
+          # Step bei Findings absichtlich mit Exit 1 — dann zaehlt die vorhandene SARIF trotzdem.
+          if (outcome != "success" and mode != "BLOCKING") or not p.exists():
               state = f"nicht auswertbar (step {outcome}, file {'ok' if p.exists() else 'fehlt'})"
           else:
               try:
@@ -186,7 +203,7 @@ jobs:
               except Exception as e:
                   state = f"nicht auswertbar ({e})"
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as s:
-              s.write(f"## 🛡️ SAST — Semgrep (advisory)\n{state} — Details im Artefakt `semgrep-sarif`\n")
+              s.write(f"## 🛡️ SAST — Semgrep ({mode})\n{state} — Details im Artefakt `semgrep-sarif`\n")
           print(f"semgrep: {state}")
           PY
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
@@ -210,7 +227,10 @@ jobs:
       # Tool-Fehler = "nicht auswertbar", nie "0 Findings".
       - name: Filesystem scan
         id: trivy-fs
-        continue-on-error: true
+        # Opt-in Dual-Gate (2026-09-04): `trivy-fs` in blocking-scanners ⇒ exit-code 1 bei
+        # CRITICAL/HIGH und kein continue-on-error auf main/tags bzw. bei force-blocking.
+        # Der config/IaC-Scan (inkl. MEDIUM) bleibt immer advisory.
+        continue-on-error: ${{ !(contains(format(',{0},', inputs.blocking-scanners), ',trivy-fs,') && (inputs.force-blocking || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))) }}
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           scan-type: fs
@@ -218,7 +238,7 @@ jobs:
           format: sarif
           output: trivy-fs.sarif
           severity: CRITICAL,HIGH
-          exit-code: '0'
+          exit-code: ${{ (contains(format(',{0},', inputs.blocking-scanners), ',trivy-fs,') && (inputs.force-blocking || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))) && '1' || '0' }}
       - name: Config / IaC scan
         id: trivy-config
         continue-on-error: true
@@ -235,22 +255,26 @@ jobs:
         env:
           FS_OUTCOME: ${{ steps.trivy-fs.outcome }}
           CFG_OUTCOME: ${{ steps.trivy-config.outcome }}
+          FS_MODE: ${{ contains(format(',{0},', inputs.blocking-scanners), ',trivy-fs,') && (inputs.force-blocking || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && 'BLOCKING' || 'advisory' }}
         run: |
           python3 - <<'PY'
           import json, os, pathlib
-          def count(path, outcome):
+          fs_mode = os.environ.get("FS_MODE", "advisory")
+          def count(path, outcome, mode="advisory"):
               p = pathlib.Path(path)
-              if outcome != "success" or not p.exists():
+              # Im BLOCKING-Modus endet der fs-Scan bei Findings absichtlich mit Exit 1 —
+              # die geschriebene SARIF zaehlt dann trotzdem (kein Werkzeugfehler).
+              if (outcome != "success" and mode != "BLOCKING") or not p.exists():
                   return f"nicht auswertbar (step {outcome}, file {'ok' if p.exists() else 'fehlt'})"
               try:
                   n = sum(len(r.get("results", [])) for r in json.load(open(p, encoding="utf-8")).get("runs", []))
               except Exception as e:
                   return f"nicht auswertbar ({e})"
               return f"{n} Finding(s)" if n else "0 Findings"
-          fs = count("trivy-fs.sarif", os.environ.get("FS_OUTCOME"))
+          fs = count("trivy-fs.sarif", os.environ.get("FS_OUTCOME"), fs_mode)
           cfg = count("trivy-config.sarif", os.environ.get("CFG_OUTCOME"))
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as s:
-              s.write(f"## 🔍 Trivy (advisory)\n| Scan | Ergebnis |\n|---|---|\n| fs (CRITICAL/HIGH) | {fs} |\n| config/IaC (CRIT/HIGH/MED) | {cfg} |\n\nDetails im Artefakt `trivy-sarif`\n")
+              s.write(f"## 🔍 Trivy (fs: {fs_mode}, config: advisory)\n| Scan | Ergebnis |\n|---|---|\n| fs (CRITICAL/HIGH) | {fs} |\n| config/IaC (CRIT/HIGH/MED) | {cfg} |\n\nDetails im Artefakt `trivy-sarif`\n")
           print(f"trivy fs: {fs}; config: {cfg}")
           PY
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
@@ -278,19 +302,26 @@ jobs:
           extra-packages: "pip-audit==2.*"
           cache-key-suffix: pip-audit
       - name: pip-audit
-        continue-on-error: true
+        # Opt-in Dual-Gate (2026-09-04): `pip-audit` in blocking-scanners ⇒ blockt auf main/tags
+        # bzw. bei force-blocking (pip-audit endet bei bekannten CVEs mit Exit 1). Der Exit wird
+        # erst NACH dem Summary weitergereicht — vorher brach `bash -e` das Summary bei Funden ab.
+        continue-on-error: ${{ !(contains(format(',{0},', inputs.blocking-scanners), ',pip-audit,') && (inputs.force-blocking || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))) }}
+        env:
+          MODE: ${{ contains(format(',{0},', inputs.blocking-scanners), ',pip-audit,') && (inputs.force-blocking || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && 'BLOCKING' || 'advisory' }}
         run: |
           if [ ! -f requirements.txt ]; then
             echo "::notice::no requirements.txt — skipping pip-audit"; exit 0
           fi
           set -o pipefail
-          pip-audit -r requirements.txt --desc | tee /tmp/audit.txt
+          RC=0
+          pip-audit -r requirements.txt --desc | tee /tmp/audit.txt || RC=$?
           {
-            echo "## 📦 SCA — Dependency Audit"
+            echo "## 📦 SCA — Dependency Audit ($MODE)"
             echo '```'
             cat /tmp/audit.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          exit "$RC"
 
   # ── CodeQL (py+js) — runner-label-driven; advisory (RAM-heavy: prefers hosted when minutes available) ──
   codeql:

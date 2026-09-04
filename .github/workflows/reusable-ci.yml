@@ -190,6 +190,16 @@ on:
         type: boolean
         default: false
         description: "Enable DAST scan after staging verify (wired in Cycle B)"
+      dast-blocking:
+        required: false
+        type: boolean
+        default: false
+        description: "Opt-in (2026-09-04): DAST-Job wird bei FAIL-Alerts rot statt advisory. Kein Deploy-Gate (laeuft nach verify-staging), aber ehrliches Signal statt Luegen-Gruen."
+      security-blocking-scanners:
+        required: false
+        type: string
+        default: ""
+        description: "Opt-in Dual-Gate pro App (2026-09-04), kommagetrennt aus {semgrep,trivy-fs,pip-audit}: diese sonst immer-advisory Scanner blocken auf main/tags und bei risky (force-blocking); auf PR/dev bleiben sie advisory. Leer = alles advisory (Default). Unbekannte Namen brechen den changes-Job ab (fail-fast)."
       run-dependency-review:
         required: false
         type: boolean
@@ -321,6 +331,7 @@ jobs:
       risky: ${{ steps.norm.outputs.risky }}
       fullci: ${{ steps.norm.outputs.fullci }}
       light: ${{ steps.norm.outputs.light }}
+      blocking_scanners: ${{ steps.norm.outputs.blocking_scanners }}
       start_time: ${{ steps.t.outputs.epoch }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -398,6 +409,7 @@ jobs:
           F_FULLCI: ${{ steps.filter.outputs.fullci }}
           MAIN_PUSH: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
           LIGHT_CAND: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') && !inputs.full-ci-on-dev-push }}
+          BLOCKING_SCANNERS: ${{ inputs.security-blocking-scanners }}
         run: |
           if [ "$F_OUTCOME" != "success" ]; then
             echo "::warning::paths-filter fehlgeschlagen — fail-closed: alle Kategorien + risky = true (volle harte CI)"
@@ -420,9 +432,20 @@ jobs:
           LIGHT=false
           if [ "$LIGHT_CAND" = "true" ] && [ "$RISKY" != "true" ]; then LIGHT=true; fi
           [ "$RISKY" = "true" ] && echo "::notice::⚠️ risky-Pfad berührt — CI-Diät aus, harte Gates aktiv (property/hadolint/bandit blocking)"
+          # Opt-in Dual-Gate (2026-09-04): Scanner-Liste normalisieren (Leerzeichen raus) und
+          # fail-fast validieren — ein Tippfehler bliebe sonst still advisory.
+          BS=$(printf '%s' "${BLOCKING_SCANNERS:-}" | tr -d '[:space:]')
+          for tok in $(printf '%s' "$BS" | tr ',' ' '); do
+            case "$tok" in
+              semgrep|trivy-fs|pip-audit) ;;
+              *) echo "::error::security-blocking-scanners: unbekannter Scanner '$tok' (erlaubt: semgrep,trivy-fs,pip-audit)"; exit 1 ;;
+            esac
+          done
+          [ -n "$BS" ] && echo "::notice::🔒 Opt-in blocking scanners: $BS (blocken auf main/tags und bei risky)"
           {
             echo "python=$PY"; echo "docker=$DK"; echo "frontend=$FR"; echo "ci=$CI"
             echo "any_code=$ANY"; echo "risky=$RISKY"; echo "fullci=$FULLCI"; echo "light=$LIGHT"
+            echo "blocking_scanners=$BS"
           } >> "$GITHUB_OUTPUT"
 
       # 🔬 TIA-observe (Lane C, OBSERVE-ONLY — deselektiert NICHTS): berechnet, welche
@@ -743,6 +766,8 @@ jobs:
       # Risk-Gating Stufe B (aktiv seit v1.10.5): risky-Pfad ⇒ dual-gated
       # Security-Steps (bandit) BLOCKING auch auf dev-Pushes.
       force-blocking: ${{ needs.changes.outputs.risky == 'true' }}
+      # Opt-in Dual-Gate pro App (2026-09-04): validiert + normalisiert im changes-Job.
+      blocking-scanners: ${{ needs.changes.outputs.blocking_scanners }}
     secrets: inherit
 
   test-matrix:
@@ -1181,7 +1206,8 @@ jobs:
     with:
       target-url: ${{ inputs.staging-url }}
       scan-type: baseline
-      blocking: false
+      # Opt-in (2026-09-04): rot bei FAIL-Alerts statt advisory; bleibt KEIN Deploy-Gate.
+      blocking: ${{ inputs.dast-blocking }}
       runner-label: ${{ inputs.runner-label }}
     secrets: inherit
 

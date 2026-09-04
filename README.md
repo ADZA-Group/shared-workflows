@@ -13,7 +13,7 @@ The goal: every app's `.github/workflows/build.yml` is a ~25-line caller of
 | Workflow | Purpose |
 |----------|---------|
 | `reusable-ci.yml` | **Orchestrator** — the one pipeline: changes → lint → security → test-matrix → coverage → docker build → telemetry |
-| `reusable-security-scan.yml` | gitleaks · Bandit · Semgrep · Trivy fs/IaC · pip-audit · CodeQL (py+js) · dependency-review · OPA. Gates: gitleaks **always hard**; Bandit-HIGH **blocks on main/tags and on risky pushes**; Semgrep, Trivy fs/IaC, pip-audit, CodeQL, dependency-review, OPA **always advisory** (policy decision — the Trivy *image* scan in `reusable-docker-build` blocks on main/tags) |
+| `reusable-security-scan.yml` | gitleaks · Bandit · Semgrep · Trivy fs/IaC · pip-audit · CodeQL (py+js) · dependency-review · OPA. Gates: gitleaks **always hard**; Bandit-HIGH **blocks on main/tags and on risky pushes**; Semgrep, Trivy fs, pip-audit **advisory by default, opt-in dual-gate per app** via `security-blocking-scanners` (since 2026-09-04); Trivy IaC, CodeQL, dependency-review, OPA **always advisory** (policy decision — the Trivy *image* scan in `reusable-docker-build` blocks on main/tags) |
 | `reusable-docker-build.yml` | buildx + size gate + Trivy image gate + SBOM + smoke; optional GHCR push + cosign keyless + SLSA provenance + multi-arch + `:previous` backup |
 | `reusable-load-test.yml` | k6 with enforced p95 + error-rate budgets (advisory/blocking toggle) |
 | `reusable-notify.yml` | Discord / Slack / Telegram alerts |
@@ -92,6 +92,8 @@ than the caller's** — if the callee requests more, GitHub fails the run at **`
 | `install-system-deps` | `false` | tesseract/poppler |
 | `multi-arch` | `false` | amd64+arm64 (arm64 currently scanned via the amd64 representative — see CAVEATS) |
 | `enable-push` | `true` | GHCR push on `push` events (false for build-only) |
+| `security-blocking-scanners` | `""` | Opt-in dual-gate per app (2026-09-04), comma-separated from `semgrep,trivy-fs,pip-audit`: the named scanners block on main/tags and on risky pushes (`force-blocking`), stay advisory on PR/dev. Unknown names fail the `changes` job. Trivy config/IaC stays advisory. |
+| `dast-blocking` | `false` | Opt-in: DAST job goes red on FAIL-level alerts instead of advisory. Not a deploy gate (runs after verify-staging). |
 | `deploy-*` / verify | *(Phase 3b)* | deploy/verify tail not yet wired in the core orchestrator |
 
 ## Config-only repos (paperless, cloudflare)
@@ -117,10 +119,16 @@ jobs:
 
 Gates: yamllint (relaxed) · `docker compose config` · gitleaks · OPA/conftest on the compose.
 gitleaks is always hard. Bandit-HIGH blocks on main/tags and on risky pushes (`force-blocking`).
-Semgrep, Trivy fs/IaC, pip-audit, CodeQL, dependency-review and OPA are **always advisory** — a
+Semgrep, Trivy fs/IaC, pip-audit, CodeQL, dependency-review and OPA are **advisory by default** — a
 deliberate policy (Semgrep noise blocked main in v1.3.x); the Trivy *image* scan in
-`reusable-docker-build` is the hard vulnerability gate on main/tags. DAST and load-test are
-advisory in the orchestrator (`blocking: false`). Audit 2026-09-03: docs now match the code.
+`reusable-docker-build` is the hard vulnerability gate on main/tags. Since 2026-09-04 an app can
+opt in per scanner via `security-blocking-scanners` (Semgrep, Trivy fs, pip-audit become dual-gated
+like Bandit: blocking on main/tags and on risky pushes) and `dast-blocking`; load-test stays
+advisory. Measured before offering the switch: rechnungsapp main had 2 Semgrep findings and 0
+pip-audit findings, so enabling `semgrep` there turns main red until those are fixed or ignored.
+Advisory jobs use job-level `continue-on-error`; measured 2026-09-04 (run 33847987446 in this
+repo): a failed job of that kind reports `needs.<job>.result == 'success'`, so advisory jobs can
+never block `docker-build`. Audit 2026-09-03: docs match the code.
 
 ## Frontend accessibility & performance
 

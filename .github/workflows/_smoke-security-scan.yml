@@ -6,6 +6,17 @@ name: "🧪 Smoke — Security Scan"
 
 on:
   workflow_dispatch:
+    inputs:
+      blocking-scanners:
+        description: "Opt-in Dual-Gate-Beweis (2026-09-04): kommagetrennt aus semgrep,trivy-fs,pip-audit — leer = advisory"
+        required: false
+        type: string
+        default: ""
+      force-blocking:
+        description: "Dual-Gate auch ausserhalb main/tags scharf schalten (wie risky-Pfad) — noetig, damit blocking-scanners auf einem Nicht-main-Ref greifen"
+        required: false
+        type: boolean
+        default: false
   schedule:
     - cron: "17 5 3 * *"   # monatlicher Drift-Wächter (Smoke war Mai–Juli 2026 unbemerkt kaputt; schedule feuert vom Default-Branch = dev)
 
@@ -22,4 +33,8 @@ jobs:
       run-dependency-review: false   # needs a pull_request event
       run-pip-audit: false           # shared-workflows has no requirements.txt
       run-codeql: false              # finicky on a non-app repo; validate via real app in P4
+      # Beweisweg fuer das Opt-in-Gate: auf einem Wegwerf-Branch mit Semgrep-Kanarienvogel dispatchen —
+      # blocking-scanners=semgrep + force-blocking=true ⇒ Semgrep-Job ROT; ohne ⇒ gruen mit "N Finding(s)".
+      blocking-scanners: ${{ inputs.blocking-scanners || '' }}
+      force-blocking: ${{ inputs.force-blocking == true }}
     secrets: inherit
