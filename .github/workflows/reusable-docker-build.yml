@@ -6,11 +6,12 @@
 # → push → cosign keyless sign + SLSA provenance.
 #
 # Audit 2026-09-03 (Fund 3): das GESCANNTE Image ist das GEPUSHTE Image.
-# Single-arch (Fleet-Default) pusht das lokal geladene, geprüfte Image per
-# `docker push` unter allen Tags — kein zweiter Build mehr, dessen Layer sich
-# von den geprüften unterscheiden könnten (und der am 03.09. in rechnungsapp
-# Run 33750934660 als einziger Schritt rot war). Nur multi-arch baut weiter
-# per buildx neu (Caveat bleibt dort dokumentiert).
+# Das lokal geladene, geprüfte amd64-Image wird per `docker push` unter allen
+# Tags gesetzt — kein zweiter Build, dessen Layer sich von den geprüften
+# unterscheiden könnten. Entrümpelung 2026-09-04: multi-arch (QEMU, zweiter
+# buildx-Build) und gated-promotion (:candidate) entfernt — kein Caller nutzte
+# sie; cosign + SLSA nur noch auf main/tags (Staging-Images bewusst ohne
+# Signatur: es gibt keinen Verifizierer im Deploy-Pfad, Watchtower prüft nichts).
 #
 # Usage:
 #   uses: adza-group/shared-workflows/.github/workflows/reusable-docker-build.yml@v1
@@ -18,7 +19,6 @@
 #     image-name: ghcr.io/adza-group/my-app
 #     push: true
 #     sign-image: true
-#     platforms: "linux/amd64,linux/arm64"
 #   secrets: inherit
 # ═══════════════════════════════════════════════════════════════
 
@@ -47,10 +47,6 @@ on:
         required: false
         type: boolean
         default: false
-      platforms:
-        required: false
-        type: string
-        default: "linux/amd64"
       image-size-limit-mb:
         required: false
         type: number
@@ -67,21 +63,12 @@ on:
         required: false
         type: boolean
         default: true
-      gated-promotion:
-        required: false
-        type: boolean
-        default: false
-        description: "main pushes :candidate-<sha> instead of :latest; a later promote job retags after staging is green"
+        description: "cosign keyless + SLSA provenance — nur auf main/tags (Entruempelung 2026-09-04): Staging-Images bleiben unsigniert, weil nichts im Deploy-Pfad Signaturen prueft."
       light:
         required: false
         type: boolean
         default: false
-        description: "dev-push (light CI): Trivy/SBOM/Sign ueberspringen — nur Build+Push. main/PR/tag bleiben voll gescannt+signiert."
-      allow-multiarch-rebuild:
-        required: false
-        type: boolean
-        default: false
-        description: "⚠️ Multi-arch pusht einen ZWEITEN buildx-Build (gescannt wurde nur das lokale amd64-Image). Ohne dieses explizite Opt-in ist platforms != linux/amd64 bei push=true fail-closed (Audit 2026-09-03, Fund 3)."
+        description: "dev-push (light CI): Trivy/SBOM ueberspringen — nur Build+Push. main/PR/tag bleiben voll gescannt."
       build-args:
         required: false
         type: string
@@ -113,9 +100,6 @@ on:
       digest:
         description: "Pushed image digest (empty when push=false)"
         value: ${{ jobs.build.outputs.digest }}
-      candidate-tag:
-        description: "Candidate tag pushed when gated-promotion on main (empty otherwise)"
-        value: ${{ jobs.build.outputs.candidate }}
 
 jobs:
   build:
@@ -135,14 +119,9 @@ jobs:
     outputs:
       tag: ${{ steps.localtag.outputs.tag }}
       size: ${{ steps.size.outputs.mb }}
-      digest: ${{ steps.push.outputs.digest || steps.build-push.outputs.digest }}
-      candidate: ${{ steps.candidate.outputs.tag }}
+      digest: ${{ steps.push.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-
-      - name: Set up QEMU (multi-arch only)
-        if: ${{ inputs.push && inputs.platforms != 'linux/amd64' }}
-        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8  # v4.2.0
 
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e  # v4.3.0
 
@@ -159,8 +138,7 @@ jobs:
           tags: |
             ${{ inputs.tag-config }}
             type=raw,value=staging,enable=${{ github.ref == 'refs/heads/dev' }}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' && !inputs.gated-promotion }}
-            type=raw,value=candidate-${{ github.sha }},enable=${{ github.ref == 'refs/heads/main' && inputs.gated-promotion }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
       - name: Build (single-arch, load for scan)
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7.3.0
@@ -272,7 +250,7 @@ jobs:
       # Registry-Fehlercode (MANIFEST_UNKNOWN/NAME_UNKNOWN) von "Fehler" unterschieden.
       # crane tag kopiert byte-identisch; der Ziel-Digest wird gegengemessen.
       - name: "Backup :latest -> :previous (main only)"
-        if: ${{ inputs.push && github.ref == 'refs/heads/main' && !inputs.gated-promotion }}
+        if: ${{ inputs.push && github.ref == 'refs/heads/main' }}
         env: { FROM: latest, TO: previous }
         run: |
           if ! SRC=$(crane digest "${IMAGE_NAME}:${FROM}" 2>/tmp/crane.err); then
@@ -308,8 +286,8 @@ jobs:
       # Tags per `docker push` desselben Images setzen, Deploy-Tag zuletzt. Scheitert
       # irgendetwas davor, ist kein Deploy-Tag bewegt worden. Verify-Tag ist pro
       # Branch fix (wird ueberschrieben, akkumuliert nicht).
-      - name: Push scanned image (single-arch, verify-tag first, deploy tag last)
-        if: ${{ inputs.push && inputs.platforms == 'linux/amd64' }}
+      - name: Push scanned image (verify-tag first, deploy tag last)
+        if: ${{ inputs.push }}
         id: push
         env:
           TAGS: ${{ steps.meta.outputs.tags }}
@@ -335,14 +313,14 @@ jobs:
           # Gegenprobe: Registry loest den Digest auf (das ist, was Watchtower ziehen wird).
           [ "$(crane digest "${IMAGE_NAME}@${DIGEST}")" = "$DIGEST" ] || { echo "::error::pushed digest ${DIGEST} not resolvable in registry"; exit 1; }
           # Reihenfolge (Codex-Fund R2-E1): erst alle NICHT deployenden Tags, der Deploy-Tag
-          # (:staging / :latest / :candidate-*) als letzte mutierende Operation. Alle harten
-          # Pruefungen liegen davor; was bleibt, ist die Registry-Grundunsicherheit
+          # (:staging / :latest) als letzte mutierende Operation. Alle harten Pruefungen
+          # liegen davor; was bleibt, ist die Registry-Grundunsicherheit
           # "Server mutiert, Client verliert die Antwort" — keine absolute Garantie.
           NORMAL=(); DEPLOY=()
           while IFS= read -r T; do
             [ -n "$T" ] || continue
             case "$T" in
-              *:staging|*:latest|*:candidate-*) DEPLOY+=("$T") ;;
+              *:staging|*:latest) DEPLOY+=("$T") ;;
               *) NORMAL+=("$T") ;;
             esac
           done <<< "$TAGS"
@@ -360,46 +338,10 @@ jobs:
           done
           echo "::notice::pushed scanned image ${DIGEST} as ${VERIFY}; ${#NORMAL[@]} normal tag(s) verified, then deploy tag(s): ${DEPLOY[*]:-none}"
 
-      # Multi-arch: buildx muss neu bauen (arm64 wurde lokal nie geladen). Caveat
-      # (README): das gepushte arm64-Image ist nicht das gescannte; amd64 kommt
-      # aus demselben Build-Cache.
-      - name: Refuse multi-arch push without explicit opt-in (fail-closed)
-        if: ${{ inputs.push && inputs.platforms != 'linux/amd64' && !inputs.allow-multiarch-rebuild }}
-        run: |
-          echo "::error::platforms='${{ inputs.platforms }}' braucht einen zweiten buildx-Build, dessen arm64-Image NICHT das gescannte ist. Setze allow-multiarch-rebuild: true, wenn das bewusst akzeptiert wird."
-          exit 1
-
-      - name: Build + push (multi-arch, UNSCANNED rebuild — explicit opt-in)
-        if: ${{ inputs.push && inputs.platforms != 'linux/amd64' && inputs.allow-multiarch-rebuild }}
-        id: build-push
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7.3.0
-        with:
-          context: ${{ inputs.context }}
-          file: ${{ inputs.dockerfile }}
-          push: true
-          platforms: ${{ inputs.platforms }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: ${{ inputs.cache-from }}
-          cache-to: type=gha,mode=max
-          build-args: |
-            ${{ inputs.build-args }}
-            GIT_SHA=${{ github.sha }}
-
-      - name: Multi-arch summary note
-        if: ${{ inputs.push && inputs.platforms != 'linux/amd64' && inputs.allow-multiarch-rebuild }}
-        run: |
-          echo "## ⚠️ Multi-arch — gepushtes Image ist ein ZWEITER Build (nur amd64 wurde gescannt), allow-multiarch-rebuild=true" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Candidate tag output
-        if: ${{ inputs.push && inputs.gated-promotion && github.ref == 'refs/heads/main' }}
-        id: candidate
-        env:
-          SHA: ${{ github.sha }}
-        run: echo "tag=${IMAGE_NAME}:candidate-${SHA}" >> "$GITHUB_OUTPUT"
-
+      # Signieren nur auf main/tags (Entruempelung 2026-09-04): dev-Pushes sind das Gros der
+      # Laeufe, nichts im Deploy-Pfad prueft Signaturen — Provenance bleibt fuer Prod erhalten.
       - name: Install cosign (github-hosted)
-        if: ${{ inputs.push && inputs.sign-image && !inputs.light && runner.environment == 'github-hosted' }}
+        if: ${{ inputs.push && inputs.sign-image && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && runner.environment == 'github-hosted' }}
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
 
       # Self-hosted (Audit 2026-09-03, Fund D): der Installer kostete 116 s pro Build
@@ -408,7 +350,7 @@ jobs:
       # sha256 gegen die im Workflow gepinnte Summe pruefen — bei JEDER Wiederverwendung
       # erneut (ein manipulierter Cache wird nie ungeprueft ausgefuehrt), atomar per mv.
       - name: Install cosign (self-hosted, cached + verified)
-        if: ${{ inputs.push && inputs.sign-image && !inputs.light && runner.environment != 'github-hosted' }}
+        if: ${{ inputs.push && inputs.sign-image && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && runner.environment != 'github-hosted' }}
         env:
           COSIGN_VERSION: v3.1.3
           COSIGN_SHA256: 4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71
@@ -428,17 +370,17 @@ jobs:
           "$BIN" version | head -3
 
       - name: Cosign sign (keyless)
-        if: ${{ inputs.push && inputs.sign-image && !inputs.light }}
+        if: ${{ inputs.push && inputs.sign-image && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
         continue-on-error: true   # best-effort: Sigstore/Rekor outages or org limits must not fail a pushed build
         env:
-          DIGEST: ${{ steps.push.outputs.digest || steps.build-push.outputs.digest }}
+          DIGEST: ${{ steps.push.outputs.digest }}
         run: cosign sign --yes "${IMAGE_NAME}@${DIGEST}"
 
       - name: SLSA build provenance
-        if: ${{ inputs.push && inputs.sign-image && !inputs.light }}
+        if: ${{ inputs.push && inputs.sign-image && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
         continue-on-error: true   # GitHub Artifact Attestations need a paid plan / public repo; advisory on free private orgs
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2
         with:
           subject-name: ${{ inputs.image-name }}
-          subject-digest: ${{ steps.push.outputs.digest || steps.build-push.outputs.digest }}
+          subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true

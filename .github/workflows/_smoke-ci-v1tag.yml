@@ -32,7 +32,6 @@ jobs:
       # v1.9-Fan-out (changes/lints/tests/security) laeuft auf cloud-runner-label —
       # Default self-hosted, und die Org-Runner-Gruppe erlaubt PUBLIC Repos nicht
       # (dieses Repo ist public) => ohne die Zeile haengt Detect Changes ewig queued.
-      cloud-runner-label: '["ubuntu-latest"]'
       coverage-threshold: 0
       test-shards: '[{"name":"fixture","paths":"tests/fixtures/app","cov":"tests/fixtures/app"}]'
       test-env: "{}"
@@ -46,7 +45,5 @@ jobs:
       prod-url: ""
       deploy-prod: false
       enable-property-tests: false
-      enable-mutation: false
-      enable-load-test: false
       enable-dast: false
     secrets: inherit

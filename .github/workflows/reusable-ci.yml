@@ -2,8 +2,9 @@
 # Reusable CI Orchestrator (CORE) — ADZA-Group
 #
 # The one canonical pipeline. Apps call this with ~10 inputs.
-# CORE: changes → lint-python + security → pytest-matrix →
-#       coverage + test-results → docker-build → telemetry.
+# CORE: changes → lint + security → pytest-matrix → coverage + test-results →
+#       docker-build → verify-staging (dev) / verify-prod (main). Entruempelt 2026-09-04:
+#       keine multi-arch, promotion, e2e, api-contract, load-test, mutation, telemetry,
 # Composites + sub-reusables referenced by full path on floating @v1 (no drift).
 #
 # Usage (app build.yml):
@@ -29,15 +30,6 @@ on:
         required: true
         type: string
       runner-label:
-        required: false
-        type: string
-        default: '["self-hosted", "linux", "proxmox"]'
-      cloud-runner-label:
-        # Runner fuer die LAN-unabhaengige Fan-out-Phase (Lints/Tests/Security/Quality).
-        # HYBRID DORMANT: Default = self-hosted, weil GitHub-hosted Runner fuer diesen
-        # Account billing-gesperrt sind ("payments failed / spending limit"). Sobald
-        # Billing gefixt ist: Caller setzt cloud-runner-label: '["ubuntu-latest"]' ->
-        # Fan-out laeuft voll parallel auf GitHubs Infra (loest GHCR-Flakes + CodeQL-OOM).
         required: false
         type: string
         default: '["self-hosted", "linux", "proxmox"]'
@@ -84,15 +76,6 @@ on:
         required: false
         type: number
         default: 800
-      multi-arch:
-        required: false
-        type: boolean
-        default: false
-      allow-multiarch-rebuild:
-        required: false
-        type: boolean
-        default: false
-        description: "Nur mit multi-arch: erlaubt den ZWEITEN (ungescannten) buildx-Build fuer arm64. Ohne Opt-in ist multi-arch bei push fail-closed (Audit 2026-09-03, Fund 3)."
       sign-image:
         required: false
         type: boolean
@@ -137,10 +120,6 @@ on:
         required: false
         type: boolean
         default: true
-      enable-mutation:
-        required: false
-        type: boolean
-        default: true
       full-ci-on-dev-push:
         required: false
         type: boolean
@@ -156,10 +135,6 @@ on:
         type: string
         default: "[]"
         description: "Stufe D (Audit 2026-09-03): JSON-Array von Globs, die die vollen Code-Lanes (Test-Matrix, Build, Frontend) erzwingen, OHNE die Gates zu haerten oder die CI-Diaet auszuschalten. Fuer test-relevante Pfade wie templates/**, static/**, translations/** — `risky-paths` bleibt fuer sicherheitsrelevante Pfade (bandit/property/hadolint blocking + Diaet aus)."
-      enable-load-test:
-        required: false
-        type: boolean
-        default: false
       staging-url:
         required: false
         type: string
@@ -170,16 +145,6 @@ on:
         type: string
         default: ""
         description: "Prod health-check URL (empty = skip verify-prod)"
-      prod-environment:
-        required: false
-        type: string
-        default: ""
-        description: "GitHub Environment for the verify-prod job (empty = none). Gives a Deployments tab; required-reviewer approval needs a paid plan on private repos."
-      staging-environment:
-        required: false
-        type: string
-        default: ""
-        description: "GitHub Environment for the verify-staging job (empty = none)."
       deploy-prod:
         required: false
         type: boolean
@@ -209,70 +174,7 @@ on:
         required: false
         type: string
         default: ""
-        description: "Opt-in Dual-Gate pro App (2026-09-04), kommagetrennt aus {semgrep,trivy-fs,pip-audit}: diese sonst immer-advisory Scanner blocken auf main/tags und bei risky (force-blocking); auf PR/dev bleiben sie advisory. Leer = alles advisory (Default). Unbekannte Namen brechen den changes-Job ab (fail-fast)."
-      run-dependency-review:
-        required: false
-        type: boolean
-        default: true
-        description: "Run GHAS dependency-review on PRs. Since v1.10.2 the job additionally auto-skips on PRIVATE repos (no GHAS in the fleet — the action hard-errors there), so this switch only matters for public repos. Passed through to reusable-security-scan."
-      enable-ghcr-prune:
-        required: false
-        type: boolean
-        default: false
-        description: "⚠️ VALIDIERT UNSICHER (2026-06-05, Rechnungsapp): buildx pusht mit provenance/SBOM IMMER einen OCI-Index — dessen Children (auch single-arch!) erscheinen in GHCR als untagged versions → der Sweep löscht sie und zerstört die im SELBEN Run gepushten Tags (manifest unknown / not found beim Pull). NICHT aktivieren, bis der Prune referenced-digest-aware ist (Risk #2)"
-      ghcr-keep-versions:
-        required: false
-        type: number
-        default: 3
-        description: "Recent tagged GHCR versions to keep (reserved — wired in the validated tagged-prune phase)"
-      openapi-spec:
-        required: false
-        type: string
-        default: ""
-        description: "OpenAPI spec path/URL for schemathesis api-contract (empty = skip the job)"
-      api-boot-command:
-        required: false
-        type: string
-        default: ""
-        description: "Command to start the app for api-contract testing"
-      api-health-url:
-        required: false
-        type: string
-        default: ""
-        description: "Health URL polled before api-contract testing"
-      api-base-url:
-        required: false
-        type: string
-        default: ""
-        description: "Base URL of the running app for schemathesis (empty = derive from health-url origin)"
-      api-requirements:
-        required: false
-        type: string
-        default: ""
-        description: "Optional requirements file installed before api-contract boot"
-      enable-e2e:
-        required: false
-        type: boolean
-        default: false
-        description: "Enable the pre-merge Playwright e2e job (opt-in; needs e2e-boot-command + e2e-health-url)"
-      e2e-boot-command:
-        required: false
-        type: string
-        default: ""
-        description: "Foreground command to start the app for e2e (uses the venv on PATH)"
-      e2e-health-url:
-        required: false
-        type: string
-        default: ""
-        description: "Health URL polled before e2e (localhost:<port>)"
-      e2e-dir:
-        required: false
-        type: string
-        default: "e2e"
-      e2e-command:
-        required: false
-        type: string
-        default: "npx playwright test"
+        description: "Opt-in Dual-Gate pro App (2026-09-04), kommagetrennt aus {semgrep,pip-audit}: diese sonst immer-advisory Scanner blocken auf main/tags und bei risky (force-blocking); auf PR/dev bleiben sie advisory. Leer = alles advisory (Default). Unbekannte Namen brechen den changes-Job ab (fail-fast)."
       staging-version-url:
         required: false
         type: string
@@ -287,18 +189,7 @@ on:
         required: false
         type: boolean
         default: true
-        description: "Hard gate: main pushes must come via dev (ff- or --no-ff-merge); violations block docker-build/promote"
-      gated-promotion:
-        required: false
-        type: boolean
-        default: false
-        description: "Opt-in: main builds :candidate-<sha>; promote-prod retags to :latest only after require-staging-green. REQUIRES staging-url."
-      enable-candidate-prune:
-        required: false
-        type: boolean
-        default: false
-        description: "Opt-in: delete GHCR versions tagged ONLY candidate-*/main-<sha> older than 14 days (referenced-safe; promoted candidates carry :latest/:main on the same version and are skipped). Note: for packages under a personal account (e.g. ghcr.io/azad-ahmed/*) the org-scoped GITHUB_TOKEN may lack DELETE permission — the step then fails loudly, no deletions."
-
+        description: "Hard gate: main pushes must come via dev (ff- or --no-ff-merge); violations block docker-build"
     # Nur die Notify-Webhooks sind echte Secrets (alles andere nutzt den
     # automatisch bereitgestellten GITHUB_TOKEN). Expliziter Block, damit Caller
     # named statt `secrets: inherit` übergeben können → ihr cross-repo
@@ -309,22 +200,13 @@ on:
         required: false
       WATCHTOWER_PROD_TOKEN:
         required: false
-      DISCORD_WEBHOOK:
-        required: false
-      SLACK_WEBHOOK:
-        required: false
-      TELEGRAM_BOT_TOKEN:
-        required: false
-      TELEGRAM_CHAT_ID:
-        required: false
-
 permissions:
   contents: read
 
 jobs:
   changes:
     name: "🔍 Detect Changes"
-    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -422,6 +304,7 @@ jobs:
           F_RISKY: ${{ steps.filter.outputs.risky }}
           F_FULLCI: ${{ steps.filter.outputs.fullci }}
           MAIN_PUSH: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+          IS_SCHEDULE: ${{ github.event_name == 'schedule' }}
           LIGHT_CAND: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') && !inputs.full-ci-on-dev-push }}
           BLOCKING_SCANNERS: ${{ inputs.security-blocking-scanners }}
           WT_STAGING_URL: ${{ inputs.staging-watchtower-url }}
@@ -447,6 +330,11 @@ jobs:
           # Ein risky-Push, der keinen Code-Filter trifft (z.B. Template-only via Caller-
           # risky-paths), baute+deployte sonst UNGETESTET (Vorfall rechnungsapp 21.08.).
           if [ "$RISKY" = "true" ]; then PY=true; DK=true; FR=true; fi
+          # Nightly = Security-only (Entruempelung 2026-09-04, Codex-Fund): als LETZTE Normalisierung,
+          # damit weder risky noch der fail-closed-Pfad des Filters die Lanes wieder einschalten.
+          # Tests/Build/Frontend liefen beim Push gegen dieselben Pins; nachts zaehlt nur die
+          # Security-Lane (CodeQL, pip-audit, Semgrep, Bandit, gitleaks) — advisory, nicht force-blocking.
+          if [ "$IS_SCHEDULE" = "true" ]; then PY=false; DK=false; FR=false; CI=false; RISKY=false; FULLCI=false; fi
           ANY=false
           if [ "$PY" = "true" ] || [ "$DK" = "true" ] || [ "$FR" = "true" ]; then ANY=true; fi
           LIGHT=false
@@ -468,8 +356,8 @@ jobs:
           BS=$(printf '%s' "${BLOCKING_SCANNERS:-}" | tr -d '[:space:]')
           for tok in $(printf '%s' "$BS" | tr ',' ' '); do
             case "$tok" in
-              semgrep|trivy-fs|pip-audit) ;;
-              *) echo "::error::security-blocking-scanners: unbekannter Scanner '$tok' (erlaubt: semgrep,trivy-fs,pip-audit)"; exit 1 ;;
+              semgrep|pip-audit) ;;
+              *) echo "::error::security-blocking-scanners: unbekannter Scanner '$tok' (erlaubt: semgrep,pip-audit)"; exit 1 ;;
             esac
           done
           [ -n "$BS" ] && echo "::notice::🔒 Opt-in blocking scanners: $BS (blocken auf main/tags und bei risky)"
@@ -478,90 +366,6 @@ jobs:
             echo "any_code=$ANY"; echo "risky=$RISKY"; echo "fullci=$FULLCI"; echo "light=$LIGHT"
             echo "blocking_scanners=$BS"
           } >> "$GITHUB_OUTPUT"
-
-      # 🔬 TIA-observe (Lane C, OBSERVE-ONLY — deselektiert NICHTS): berechnet, welche
-      # Tests eine naming-convention-Heuristik für diesen Push GEWÄHLT HÄTTE. Der
-      # test-results-Job prüft dann gegen die echten roten Tests, ob die Auswahl sie
-      # enthalten hätte (False-Negative-Messung). Erst wenn Wochen an Daten die
-      # Trefferquote belegen, wird echtes Deselektieren überhaupt erwogen (Codex-
-      # Review: Coverage-Map-TIA ist für diese Fleet-Größe zu viel Infrastruktur;
-      # "CI auf max" und Tests-weglassen ziehen in entgegengesetzte Richtungen).
-      - name: TIA observe (would-have-selected, never deselects)
-        continue-on-error: true
-        env:
-          EV: ${{ github.event_name }}
-          REF: ${{ github.ref }}
-          BEFORE: ${{ github.event.before }}
-          RISKY: ${{ steps.norm.outputs.risky }}
-        run: |
-          python3 - <<'PY'
-          import fnmatch, glob, json, os, subprocess
-          ev, ref = os.environ.get("EV"), os.environ.get("REF", "")
-          before, risky = os.environ.get("BEFORE", ""), os.environ.get("RISKY") == "true"
-          res = {"mode": "n/a", "reason": "", "changed": [], "selected_tests": [], "unmapped": []}
-          def done():
-              with open("tia-observe.json", "w", encoding="utf-8") as f:
-                  json.dump(res, f, indent=2)
-              line = f"TIA-observe: mode={res['mode']}" + (f" ({res['reason']})" if res["reason"] else "")
-              if res["mode"] == "selected":
-                  line += f" — {len(res['selected_tests'])} Testdatei(en) für {len(res['changed'])} geänderte Datei(en)"
-              print(line)
-              with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as s:
-                  s.write(f"\n### 🔬 TIA-observe\n{line}\n")
-              raise SystemExit(0)
-          if ev != "push" or ref == "refs/heads/main" or ref.startswith("refs/tags/"):
-              res["reason"] = f"event={ev} ref={ref} — TIA gälte nur für dev-Pushes"; done()
-          if risky:
-              res["mode"], res["reason"] = "full", "risky-Pfad ⇒ immer volle Matrix"; done()
-          zero = "0" * 40
-          def git(*a):
-              return subprocess.run(["git", *a], capture_output=True, text=True)
-          if not before or before == zero or git("cat-file", "-e", before).returncode != 0 \
-             or git("merge-base", "--is-ancestor", before, "HEAD").returncode != 0:
-              res["mode"], res["reason"] = "full", "kein sauberer before..sha-Bereich (force-push/neuer Branch)"; done()
-          changed = [l for l in git("diff", "--name-only", f"{before}..HEAD").stdout.splitlines() if l]
-          res["changed"] = changed
-          # Präzise statt Substring (Codex R1): Verzeichnisse per Pfad-Anker,
-          # Dateien per basename-Prefix — docs/.github-artige Pfade zählen sonst
-          # fälschlich als strukturell (observe-only ⇒ nur Messrauschen, aber unnötig).
-          def is_structural(f, base):
-              if f.startswith(".github/") or f.startswith("migrations/") or "/migrations/" in f:
-                  return True
-              return any(base.startswith(p) for p in
-                         ("requirements", "conftest", "pytest.ini", ".coveragerc",
-                          "Dockerfile", "docker-compose"))
-          selected, unmapped = set(), []
-          for f in changed:
-              base = os.path.basename(f)
-              if is_structural(f, base):
-                  res["mode"], res["reason"] = "full", f"strukturelle Änderung: {f}"; done()
-              if fnmatch.fnmatch(base, "test_*.py") or fnmatch.fnmatch(base, "*_test.py"):
-                  selected.add(f); continue
-              if f.endswith(".py"):
-                  stem = base[:-3]
-                  hits = glob.glob(f"tests/**/test_{stem}*.py", recursive=True) + glob.glob(f"tests/test_{stem}*.py")
-                  hits = [h.replace(os.sep, "/") for h in hits]  # nodeids sind immer forward-slash
-                  if hits:
-                      selected.update(hits)
-                  else:
-                      unmapped.append(f)
-              else:
-                  unmapped.append(f)  # Templates/SQL/Config — keine Python-Kante (Codex C)
-          if unmapped:
-              res["mode"], res["reason"], res["unmapped"] = "full", f"{len(unmapped)} Datei(en) ohne Test-Mapping", unmapped
-              res["selected_tests"] = sorted(selected); done()
-          res["mode"], res["selected_tests"] = "selected", sorted(selected)
-          done()
-          PY
-      - name: Upload TIA observe
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        continue-on-error: true
-        with:
-          name: tia-observe
-          path: tia-observe.json
-          retention-days: 30
-          if-no-files-found: ignore
 
   branch-policy:
     name: "🛡️ Branch Policy"
@@ -592,7 +396,7 @@ jobs:
     name: "🐍 Lint (ruff)"
     needs: changes
     if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true' }}
-    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -610,7 +414,7 @@ jobs:
     name: "🐳 Lint Dockerfile"
     needs: changes
     if: ${{ needs.changes.outputs.docker == 'true' || needs.changes.outputs.ci == 'true' }}
-    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 5
     # Risk-Gating: Dockerfile-Änderung auf risky-Pfad (Dockerfile IST risky-Default)
     # ⇒ hadolint BLOCKING + gated den Build (docker-build.needs). Sonst advisory.
@@ -636,98 +440,6 @@ jobs:
           # ADZA "always newest stable" stack-policy. Real errors (DLxxxx error-level) still fail.
           hadolint "$DOCKERFILE" --format tty --failure-threshold error
 
-  code-quality:
-    name: "📊 Code Quality"
-    needs: changes
-    # CI-Diaet (v1.9.4): auf dev-/Feature-PUSHES aus. Der Job ist dort ohnehin
-    # continue-on-error — reine Beratung, auf die niemand wartet, aber ~3-4 min
-    # Runner-104-Zeit pro Push. PR, main, dispatch und der naechtliche schedule-
-    # Lauf fahren ihn weiter voll. Schreibweise wie security/property-tests:
-    # Job-Outputs sind STRINGS, !light waere immer falsch.
-    if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true') && needs.changes.outputs.light != 'true' }}
-    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
-    timeout-minutes: 10
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1
-        with:
-          install-requirements: "false"
-          extra-packages: "radon==6.0.1"
-          cache-key-suffix: radon
-      - name: Radon complexity
-        run: |
-          {
-            echo "## 📊 Code Quality (radon)"
-            echo '```'
-            radon cc . -a -nb --exclude "tests,__pycache__,.venv" 2>/dev/null || echo "(no Python source found)"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          radon cc . -a -nb --exclude "tests,__pycache__,.venv" 2>/dev/null || true
-
-  dead-code:
-    name: "💀 Dead Code"
-    needs: changes
-    # CI-Diaet (v1.9.4): auf dev-/Feature-PUSHES aus. Der Job ist dort ohnehin
-    # continue-on-error — reine Beratung, auf die niemand wartet, aber ~3-4 min
-    # Runner-104-Zeit pro Push. PR, main, dispatch und der naechtliche schedule-
-    # Lauf fahren ihn weiter voll. Schreibweise wie security/property-tests:
-    # Job-Outputs sind STRINGS, !light waere immer falsch.
-    if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true') && needs.changes.outputs.light != 'true' }}
-    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
-    timeout-minutes: 10
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - uses: adza-group/shared-workflows/.github/actions/setup-python-deps@v1
-        with:
-          install-requirements: "false"
-          extra-packages: "vulture==2.16"
-          cache-key-suffix: vulture
-      - name: Vulture scan
-        run: |
-          {
-            echo "## 💀 Dead Code (vulture)"
-            echo '```'
-            vulture . --min-confidence 80 --exclude tests,__pycache__,.venv 2>/dev/null || echo "(no issues or no source)"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          vulture . --min-confidence 80 --exclude tests,__pycache__,.venv 2>/dev/null || true
-
-  todo-tracker:
-    name: "📌 TODOs"
-    needs: changes
-    # CI-Diaet (v1.9.4): auf dev-/Feature-PUSHES aus. Der Job ist dort ohnehin
-    # continue-on-error — reine Beratung, auf die niemand wartet, aber ~3-4 min
-    # Runner-104-Zeit pro Push. PR, main, dispatch und der naechtliche schedule-
-    # Lauf fahren ihn weiter voll. Schreibweise wie security/property-tests:
-    # Job-Outputs sind STRINGS, !light waere immer falsch.
-    if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true') && needs.changes.outputs.light != 'true' }}
-    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - name: Count open TODOs
-        run: |
-          COUNT=$(grep -rn --include="*.py" "TODO\|FIXME\|HACK\|XXX" . 2>/dev/null | grep -v ".venv" | wc -l || echo 0)
-          {
-            echo "## 📌 TODO Tracker"
-            echo "| Metric | Count |"
-            echo "|--------|-------|"
-            echo "| Open TODO/FIXME/HACK/XXX | ${COUNT} |"
-          } >> "$GITHUB_STEP_SUMMARY"
-          if [ "$COUNT" -gt 0 ]; then
-            {
-              echo ""
-              echo "<details><summary>Show items</summary>"
-              echo ""
-              echo '```'
-              grep -rn --include="*.py" "TODO\|FIXME\|HACK\|XXX" . 2>/dev/null | grep -v ".venv" | head -50
-              echo '```'
-              echo "</details>"
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
-
   license-check:
     name: "⚖️ Licenses"
     needs: changes
@@ -737,7 +449,7 @@ jobs:
     # Lauf fahren ihn weiter voll. Schreibweise wie security/property-tests:
     # Job-Outputs sind STRINGS, !light waere immer falsch.
     if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true') && needs.changes.outputs.light != 'true' }}
-    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 10
     continue-on-error: ${{ !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
     steps:
@@ -760,7 +472,7 @@ jobs:
     name: "📝 Commit Lint"
     needs: changes
     if: ${{ github.event_name == 'pull_request' }}
-    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 5
     continue-on-error: true
     steps:
@@ -780,7 +492,7 @@ jobs:
   security:
     name: "🔐 Security"
     needs: changes
-    if: ${{ (needs.changes.outputs.any_code == 'true' || needs.changes.outputs.ci == 'true') && needs.changes.outputs.light != 'true' }}
+    if: ${{ (github.event_name == 'schedule' || needs.changes.outputs.any_code == 'true' || needs.changes.outputs.ci == 'true') && needs.changes.outputs.light != 'true' }}
     permissions:
       actions: read            # CodeQL on private repos calls GET /actions/runs/{id} → needs actions:read (github/codeql-action#2117)
       contents: read
@@ -788,8 +500,7 @@ jobs:
     uses: adza-group/shared-workflows/.github/workflows/reusable-security-scan.yml@v1
     with:
       python-version: ${{ inputs.python-version }}
-      runner-label: ${{ inputs.cloud-runner-label }}
-      run-dependency-review: ${{ inputs.run-dependency-review }}
+      runner-label: ${{ inputs.runner-label }}
       # CodeQL nur nightly + main/tags (Policy 2026-09-04, Stufe 6): GEMESSEN 183 s + 158 s
       # pro vollem Lauf, ohne GHAS advisory (SARIF-Artefakt + Zaehler bleiben). dispatch auf
       # main zaehlt als main. Reversibel: Zeile entfernen ⇒ Default true.
@@ -805,7 +516,7 @@ jobs:
     name: "🧪 Test"
     needs: changes
     if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true' }}
-    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -882,7 +593,7 @@ jobs:
     name: "📊 Coverage Gate"
     needs: test-matrix
     if: ${{ always() && needs.test-matrix.result == 'success' }}
-    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -917,7 +628,7 @@ jobs:
     # step-level continue-on-error -> ohne Job-level CoE roetet ein Reporting-
     # Hiccup die ganze Pipeline, obwohl Tests/Build/Deploy gruen sind.
     continue-on-error: true
-    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -939,175 +650,14 @@ jobs:
           junit_files: "junit/junit-*.xml"
           comment_mode: "off"
 
-      # 🎲 Flake Radar — aggregate the per-shard rerun-then-pass signals emitted by
       # run-pytest-shard into one report + step-summary. Compares expected shards (from
       # test-shards) to reported ones, so a missing/crashed shard cannot read as "no
-      # flakes" (lügen-grün). Observe-only, and the job is already continue-on-error →
       # this can never change the pipeline outcome.
-      - name: Download flake reports
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
-        continue-on-error: true
-        with:
-          pattern: flakes-*
-          path: flakes
-          merge-multiple: true
-      - name: Flake radar (aggregate + summary)
-        continue-on-error: true
-        shell: bash
-        env:
-          TEST_SHARDS: ${{ inputs.test-shards }}
-        run: |
-          python3 - <<'PY'
-          import glob, json, os
-          # Expected shard names come from the caller's test-shards input (this job sees it).
-          # Comparing them to what actually reported prevents a crashed shard reading as green.
-          try:
-              expected = {s.get("name", "") for s in json.loads(os.environ.get("TEST_SHARDS") or "[]")}
-          except Exception:
-              expected = set()
-          expected.discard("")
-          files = sorted(glob.glob("flakes/flakes-*.json"))
-          reported = set()
-          parse_err = 0
-          agg = {}
-          for fp in files:
-              try:
-                  d = json.load(open(fp, encoding="utf-8"))
-                  if not isinstance(d, dict):
-                      raise ValueError("not a json object")
-              except Exception:
-                  parse_err += 1
-                  continue
-              name = d.get("shard", "") or os.path.basename(fp)[len("flakes-"):-len(".json")]
-              reported.add(name)
-              for f in d.get("flaky", []):
-                  k = (f.get("nodeid", ""), f.get("shard", ""))
-                  agg[k] = agg.get(k, 0) + int(f.get("reruns", 0))
-          missing = sorted(expected - reported) if expected else []
-          report = {
-              "shards_expected": sorted(expected),
-              "shards_reported": sorted(reported),
-              "shards_missing": missing,
-              "parse_errors": parse_err,
-              "flaky_count": len(agg),
-              "total_reruns": sum(agg.values()),
-              "flaky": [{"nodeid": k[0], "shard": k[1], "reruns": v}
-                        for k, v in sorted(agg.items(), key=lambda x: -x[1])],
-          }
-          with open("flake-report.json", "w", encoding="utf-8") as f:
-              json.dump(report, f, indent=2)
-          n_rep = len(reported)
-          n_exp = len(expected) if expected else n_rep
-          lines = ["## 🎲 Flake Radar", ""]
-          if not files:
-              lines.append("_No flake data emitted by shards this run._")
-          else:
-              note = f"  ⚠️ {parse_err} unreadable" if parse_err else ""
-              lines.append(f"- Shards analyzed: **{n_rep}/{n_exp}**{note}")
-              if missing:
-                  ms = ", ".join("`" + m + "`" for m in missing)
-                  lines.append(f"- ⚠️ **Missing shard reports:** {ms} — result below is partial")
-              if not agg:
-                  if missing:
-                      lines.append(f"- **No flakes in {n_rep}/{n_exp} analyzed shards** (rest missing — not a clean bill)")
-                  else:
-                      lines.append("- ✅ **No flaky tests this run**")
-              else:
-                  lines.append(f"- 🎲 **{len(agg)} flaky test(s)** — passed only after a rerun:")
-                  lines += ["", "| Test | Shard | Reruns |", "|------|-------|--------|"]
-                  for k, v in sorted(agg.items(), key=lambda x: -x[1]):
-                      lines.append(f"| `{k[0]}` | {k[1]} | {v} |")
-          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as s:
-              s.write("\n".join(lines) + "\n")
-          PY
-      - name: Upload flake report
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        continue-on-error: true
-        with:
-          name: flake-report
-          path: flake-report.json
-          retention-days: 90
-          if-no-files-found: ignore
-
-      # 🔬 TIA-observe VERDICT: hätte die (nie aktive) Test-Auswahl die tatsächlich
-      # roten Tests enthalten? Misst die False-Negative-Rate der Heuristik über
-      # echte Läufe, BEVOR je ein Test deselektiert wird. Rote Tests kommen exakt
-      # (nodeids) aus den flakes-Artefakten des Radar-Plugins.
-      - name: Download TIA observe
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
-        continue-on-error: true
-        with:
-          name: tia-observe
-          path: tia
-      - name: TIA observe verdict
-        continue-on-error: true
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          import glob, json, os
-          try:
-              tia = json.load(open("tia/tia-observe.json", encoding="utf-8"))
-          except Exception:
-              raise SystemExit(0)  # kein Observe-Datensatz (dispatch/main/…) — nichts zu prüfen
-          failed = set()
-          for fp in glob.glob("flakes/flakes-*.json"):
-              try:
-                  d = json.load(open(fp, encoding="utf-8"))
-                  failed.update(d.get("failed", []) if isinstance(d, dict) else [])
-              except Exception:
-                  pass
-          lines = []
-          if tia.get("mode") != "selected":
-              lines.append(f"Verdict: n/a — Heuristik wäre '{tia.get('mode')}' gelaufen ({tia.get('reason','')})")
-          elif not failed:
-              lines.append(f"Verdict: keine roten Tests — Auswahl-Genauigkeit diese Runde nicht messbar (hätte {len(tia.get('selected_tests', []))} Testdatei(en) gewählt)")
-          else:
-              sel = set(tia.get("selected_tests", []))
-              missed = sorted({n.split("::")[0] for n in failed} - sel)
-              if missed:
-                  ms = ", ".join(f"`{m}`" for m in missed)
-                  lines.append(f"Verdict: ❌ Heuristik hätte rote Testdatei(en) VERPASST: {ms} — Aktivierung wäre falsch gewesen (genau dafür ist observe-only da)")
-              else:
-                  lines.append(f"Verdict: ✅ Auswahl hätte alle {len(failed)} roten Tests enthalten")
-          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as s:
-              s.write("\n".join(lines) + "\n")
-          print("\n".join(lines))
-          # Stufe E: maschinenlesbarer Verdict fuer den TIA-Ledger in pipeline-analytics.
-          # Vollstaendigkeit (Codex-Fund E1): fehlt ein Shard-Report oder ist einer unlesbar,
-          # koennte genau dort der uebersehene Fehler liegen ⇒ complete=false, Ledger ignoriert.
-          try:
-              rep = json.load(open("flake-report.json", encoding="utf-8"))
-          except Exception:
-              rep = {}
-          missing = rep.get("shards_missing", []); perr = int(rep.get("parse_errors", 0) or 0)
-          reported = rep.get("shards_reported", [])
-          complete = bool(reported) and not missing and perr == 0
-          sel = set(tia.get("selected_tests", []))
-          failed_files = sorted({n.split("::")[0] for n in failed})
-          json.dump({
-              "mode": tia.get("mode"), "reason": tia.get("reason", ""),
-              "complete": complete, "shards_missing": missing, "parse_errors": perr,
-              "changed": len(tia.get("changed", [])), "selected": sorted(sel),
-              "failed_files": failed_files,
-              "missed": sorted(set(failed_files) - sel) if tia.get("mode") == "selected" else [],
-          }, open("tia-verdict.json", "w", encoding="utf-8"), indent=2)
-          PY
-      - name: Upload TIA verdict (ledger source)
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        continue-on-error: true
-        with:
-          name: tia-verdict
-          path: tia-verdict.json
-          retention-days: 90
-          if-no-files-found: ignore
-
   property-tests:
     name: "🔬 Property Tests"
     needs: changes
     if: ${{ inputs.enable-property-tests && (needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true') && needs.changes.outputs.light != 'true' }}
-    runs-on: ${{ fromJSON(inputs.cloud-runner-label) }}
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 15
     # Risk-Gating: bei risky-Pfaden BLOCKING, sonst advisory wie bisher (auch auf
     # main — das bestehende main-Verhalten wird bewusst NICHT stillschweigend
@@ -1144,57 +694,6 @@ jobs:
           fi
           pytest tests/ -m "hypothesis" --hypothesis-seed=0 --timeout=60 -p no:cacheprovider
 
-  mutation:
-    name: "🧬 Mutation (incremental)"
-    needs: [changes, test-matrix]
-    if: ${{ inputs.enable-mutation && needs.test-matrix.result == 'success' && needs.changes.outputs.python == 'true' }}
-    permissions:
-      contents: read
-    uses: adza-group/shared-workflows/.github/workflows/reusable-mutation.yml@v1
-    with:
-      mode: incremental
-      base-ref: main
-      runner-label: ${{ inputs.cloud-runner-label }}
-    secrets: inherit
-
-  api-contract:
-    name: "📑 API Contract"
-    needs: [changes]
-    if: ${{ inputs.openapi-spec != '' }}
-    permissions:
-      contents: read
-    uses: adza-group/shared-workflows/.github/workflows/reusable-api-contract.yml@v1
-    with:
-      openapi-spec: ${{ inputs.openapi-spec }}
-      base-url: ${{ inputs.api-base-url }}
-      boot-command: ${{ inputs.api-boot-command }}
-      health-url: ${{ inputs.api-health-url }}
-      requirements: ${{ inputs.api-requirements }}
-      runner-label: ${{ inputs.cloud-runner-label }}
-    secrets: inherit
-
-  e2e:
-    name: "🎭 E2E"
-    needs: [changes, test-matrix]
-    if: >-
-      ${{ inputs.enable-e2e && inputs.e2e-boot-command != '' &&
-      needs.test-matrix.result == 'success' &&
-      (needs.changes.outputs.python == 'true' || needs.changes.outputs.frontend == 'true' || needs.changes.outputs.ci == 'true') }}
-    permissions:
-      contents: read
-    uses: adza-group/shared-workflows/.github/workflows/reusable-e2e.yml@v1
-    with:
-      runner-label: ${{ inputs.runner-label }}
-      python-version: ${{ inputs.python-version }}
-      postgres-version: ${{ inputs.postgres-version }}
-      boot-command: ${{ inputs.e2e-boot-command }}
-      health-url: ${{ inputs.e2e-health-url }}
-      e2e-dir: ${{ inputs.e2e-dir }}
-      e2e-command: ${{ inputs.e2e-command }}
-      test-env: ${{ inputs.test-env }}
-      install-system-deps: ${{ inputs.install-system-deps }}
-    secrets: inherit
-
   frontend:
     name: "🎨 Frontend"
     needs: changes
@@ -1204,25 +703,10 @@ jobs:
     uses: adza-group/shared-workflows/.github/workflows/reusable-frontend.yml@v1
     with:
       frontend-dir: ${{ inputs.frontend-dir }}
-      runner-label: ${{ inputs.cloud-runner-label }}
+      runner-label: ${{ inputs.runner-label }}
       a11y-url: ${{ inputs.a11y-url }}
       a11y-paths: ${{ inputs.a11y-paths }}
       a11y-threshold: ${{ inputs.a11y-threshold }}
-    secrets: inherit
-
-  load-test:
-    name: "📈 Load Test"
-    needs: [verify-staging]
-    if: >-
-      ${{ always() && inputs.enable-load-test && inputs.staging-url != '' &&
-      needs.verify-staging.result == 'success' }}
-    permissions:
-      contents: read
-    uses: adza-group/shared-workflows/.github/workflows/reusable-load-test.yml@v1
-    with:
-      target-url: ${{ inputs.staging-url }}
-      blocking: false
-      runner-label: ${{ inputs.runner-label }}
     secrets: inherit
 
   dast:
@@ -1244,7 +728,7 @@ jobs:
 
   docker-build:
     name: "🐳 Build"
-    needs: [changes, lint-python, lint-dockerfile, test-matrix, security, coverage, e2e, branch-policy, property-tests, license-check]
+    needs: [changes, lint-python, lint-dockerfile, test-matrix, security, coverage, branch-policy, property-tests, license-check]
     # HARD DEPLOY GATE (Audit 2026-07-16, P1): security + coverage gaten jetzt den
     # Build/Push. Vorher liefen sie nur PARALLEL — ein committetes Secret (gitleaks)
     # oder ein bandit-HIGH färbte den Run zwar rot, das Image ging aber trotzdem nach
@@ -1274,7 +758,6 @@ jobs:
       (needs.security.result == 'success' ||
        (needs.security.result == 'skipped' && needs.changes.outputs.light == 'true')) &&
       (needs.coverage.result == 'success' || needs.coverage.result == 'skipped') &&
-      (needs.e2e.result == 'success' || needs.e2e.result == 'skipped') &&
       (needs.branch-policy.result == 'success' || needs.branch-policy.result == 'skipped') &&
       (needs.test-matrix.result == 'success' || needs.test-matrix.result == 'skipped') &&
       (needs.property-tests.result == 'success' || needs.property-tests.result == 'skipped' ||
@@ -1294,11 +777,8 @@ jobs:
       dockerfile: ${{ inputs.dockerfile }}
       context: ${{ inputs.docker-context }}
       sign-image: ${{ inputs.sign-image }}
-      platforms: ${{ inputs.multi-arch && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
-      allow-multiarch-rebuild: ${{ inputs.allow-multiarch-rebuild }}
       image-size-limit-mb: ${{ inputs.image-size-limit-mb }}
       runner-label: ${{ inputs.runner-label }}
-      gated-promotion: ${{ inputs.gated-promotion }}
       # dev-Pushes (light): Image bauen + pushen (Staging braucht es), aber Trivy/SBOM/Sign
       # ueberspringen — ~90s je Push; die Verify-Gates greifen ohnehin nur main/staging.
       light: ${{ needs.changes.outputs.light == 'true' }}
@@ -1306,14 +786,13 @@ jobs:
 
   verify-staging:
     name: "🔍 Verify Staging"
-    environment: ${{ inputs.staging-environment }}
     needs: [docker-build]
     # enable-push ist Pflicht (Codex, Stufe 4): ein erfolgreicher Build OHNE Push beweist
     # keinen Deploy — verify-staging wuerde sonst gegen ein altes Staging pruefen.
     if: >-
       ${{ always() && inputs.staging-url != '' && inputs.deploy-prod && inputs.enable-push &&
       needs.docker-build.result == 'success' &&
-      github.event_name == 'push' }}
+      github.ref == 'refs/heads/dev' && github.event_name == 'push' }}
     runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 25
     permissions:
@@ -1383,105 +862,14 @@ jobs:
         if: steps.staging-check.outcome == 'failure'
         run: exit 1
 
-  require-staging-green:
-    name: "🚦 Require Staging Green"
-    needs: [verify-staging]
-    # Nur bei push gaten: verify-staging läuft ausschliesslich bei push (s.o.) —
-    # bei schedule/workflow_dispatch wäre das Ergebnis immer "skipped" und das
-    # Gate riss jede Nightly grundlos rot (footballapp Nightly 2026-07-21).
-    if: >-
-      ${{ always() && inputs.staging-url != '' && inputs.deploy-prod &&
-      github.ref == 'refs/heads/main' && github.event_name == 'push' }}
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
-    timeout-minutes: 5
-    steps:
-      - name: Gate on staging health
-        run: |
-          if [ "${{ needs.verify-staging.result }}" != "success" ]; then
-            echo "::error::staging not green (result: ${{ needs.verify-staging.result }}) — blocking main push"
-            exit 1
-          fi
-          echo "✅ staging verified green — prod push allowed"
-
-  promote-prod:
-    name: "🚀 Promote Prod"
-    needs: [docker-build, require-staging-green]
-    if: >-
-      ${{ always() && inputs.gated-promotion && inputs.deploy-prod &&
-      github.ref == 'refs/heads/main' && github.event_name == 'push' &&
-      needs.docker-build.result == 'success' &&
-      needs.require-staging-green.result == 'success' }}
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - name: GHCR login
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4.6.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Install crane (pinned, sha256-verified)
-        env:
-          CRANE_VERSION: v0.22.0
-          CRANE_SHA256: edb74d53fad9a596860f59d1c5d04a43dfb5f441dc71f57060dd0bf39483c833
-        run: |
-          curl -sSfL "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz" -o "$RUNNER_TEMP/crane.tgz"
-          echo "${CRANE_SHA256}  $RUNNER_TEMP/crane.tgz" | sha256sum -c --quiet - || { echo "::error::crane checksum mismatch"; exit 1; }
-          mkdir -p "$RUNNER_TEMP/crane-bin" && tar xz -C "$RUNNER_TEMP/crane-bin" -f "$RUNNER_TEMP/crane.tgz" crane
-          echo "$RUNNER_TEMP/crane-bin" >> "$GITHUB_PATH"
-      # Audit 2026-09-03 (Fund 6): kein continue-on-error — ein fehlgeschlagenes Backup
-      # blockt die Promotion, sonst rollt verify-prod spaeter auf ein veraltetes :previous.
-      # "Tag fehlt" (erster gated Run) wird explizit von "inspect fehlgeschlagen" getrennt.
-      - name: "Backup :latest -> :previous"
-        env:
-          IMAGE: ${{ inputs.image-name != '' && inputs.image-name || format('ghcr.io/adza-group/{0}', inputs.app-name) }}
-        run: |
-          if ! SRC=$(crane digest "${IMAGE}:latest" 2>/tmp/crane.err); then
-            if grep -qiE 'MANIFEST_UNKNOWN|manifest unknown|NAME_UNKNOWN' /tmp/crane.err; then
-              echo "::notice::no existing :latest to back up (first gated run)"; exit 0
-            fi
-            echo "::error::crane digest ${IMAGE}:latest failed — Backup unklar, Promotion geblockt"; cat /tmp/crane.err; exit 1
-          fi
-          crane tag "${IMAGE}@${SRC}" previous
-          [ "$(crane digest "${IMAGE}:previous")" = "$SRC" ] || { echo "::error::backup :previous digest mismatch"; exit 1; }
-          echo "::notice::backed up :latest -> :previous (${SRC})"
-      - name: "Promote :candidate -> :latest (byte-identical via crane)"
-        env:
-          IMAGE: ${{ inputs.image-name != '' && inputs.image-name || format('ghcr.io/adza-group/{0}', inputs.app-name) }}
-          CANDIDATE: ${{ needs.docker-build.outputs.candidate-tag }}
-          SHA: ${{ github.sha }}
-        run: |
-          if [ -z "$CANDIDATE" ]; then
-            CANDIDATE="${IMAGE}:candidate-${SHA}"
-            echo "::notice::candidate-tag output empty — reconstructed ${CANDIDATE}"
-          fi
-          SRC=$(crane digest "$CANDIDATE")
-          # Digest-Stabilitaet HART an einem nicht deployenden Tag beweisen (Codex R1-B1),
-          # danach :latest als LETZTE Mutation mit Soft-Check — ein roter Promote-Job hat
-          # dann nie :latest bewegt (Registry-Grundunsicherheit bleibt, s. docker-build).
-          crane tag "${IMAGE}@${SRC}" promote-verify
-          PV=$(crane digest "${IMAGE}:promote-verify")
-          [ "$PV" = "$SRC" ] || { echo "::error::promote-verify resolved to ${PV}, expected ${SRC} — :latest NOT touched"; exit 1; }
-          echo "digest=$SRC" >> "$GITHUB_OUTPUT"
-          crane tag "${IMAGE}@${SRC}" latest   # letzte mutierende Operation
-          crane digest "${IMAGE}:latest" 2>/dev/null | grep -qx "$SRC" \
-            || echo "::warning::post-check of :latest inconclusive (tag was set; verify manually if unsure)"
-          echo "::notice::promoted ${CANDIDATE} (${SRC}) -> ${IMAGE}:latest — watchtower deploys prod on next poll"
-
   verify-prod:
     name: "✅ Verify Prod"
-    environment: ${{ inputs.prod-environment }}
-    needs: [docker-build, require-staging-green, promote-prod]
+    needs: [docker-build]
     # Nur bei push (Codex, Stufe 4): bei schedule/dispatch auf main wird nichts deployt —
-    # ein Health-Flake haette dann :previous ueber :latest gerollt, ohne dass ein neues
     # Image dahinterstand (footballapp Nightly laeuft auf main).
     if: >-
       ${{ always() && inputs.prod-url != '' && inputs.deploy-prod && inputs.enable-push &&
       needs.docker-build.result == 'success' &&
-      (needs.promote-prod.result == 'success' || (!inputs.gated-promotion && needs.promote-prod.result == 'skipped')) &&
       github.ref == 'refs/heads/main' && github.event_name == 'push' }}
     runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 25
@@ -1567,101 +955,6 @@ jobs:
         if: steps.prod-check.outcome == 'failure'
         run: exit 1
 
-  prune-ghcr:
-    name: "🧹 Prune GHCR"
-    needs: [docker-build, verify-staging, verify-prod]
-    if: >-
-      ${{ always() && (inputs.enable-ghcr-prune || inputs.enable-candidate-prune) && github.event_name == 'push' &&
-      needs.docker-build.result == 'success' &&
-      needs.verify-staging.result != 'failure' &&
-      needs.verify-prod.result != 'failure' }}
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
-    timeout-minutes: 10
-    permissions:
-      packages: write
-    steps:
-      - name: Delete untagged versions
-        if: ${{ inputs.enable-ghcr-prune }}
-        continue-on-error: true
-        uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55  # v5.0.0
-        with:
-          package-name: ${{ inputs.app-name }}
-          package-type: container
-          delete-only-untagged-versions: "true"
-      - name: Delete stale candidate versions (referenced-safe)
-        if: ${{ inputs.enable-candidate-prune }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          IMAGE: ${{ inputs.image-name != '' && inputs.image-name || format('ghcr.io/adza-group/{0}', inputs.app-name) }}
-        run: |
-          # ghcr.io/<owner>/<pkg...> -> owner + url-encoded package path
-          OWNER=$(echo "$IMAGE" | cut -d/ -f2)
-          PKG=$(echo "$IMAGE" | cut -d/ -f3- | sed 's|/|%2F|g')
-          CUTOFF=$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ)
-          BASE="/orgs/${OWNER}/packages/container/${PKG}"
-          gh api "${BASE}/versions?per_page=100" --paginate > /tmp/vers.json 2>/dev/null \
-            || { BASE="/users/${OWNER}/packages/container/${PKG}"; gh api "${BASE}/versions?per_page=100" --paginate > /tmp/vers.json; }
-          # Safety-Annahme (load-bearing): imagetools create --tag :latest :candidate-<sha>
-          # erzeugt den SELBEN OCI-Manifest-Digest -> GHCR fuehrt beide Tags an EINER Version.
-          # Empirisch verifiziert: RecyclageApp Pilot Run #391 (2026-06-10, Digest 4e8fa99f).
-          # Vor Aktivierung auf neuen Apps: in GHCR pruefen, dass die promotete Version
-          # candidate-* UND latest am selben Eintrag traegt.
-          # Loeschregel: aelter als CUTOFF, hat Tags, ALLE Tags matchen candidate-*/main-<sha>,
-          # KEIN Tag aus dem Schutz-Set (Gurt+Hosentraeger zur Regex).
-          jq -r --arg cutoff "$CUTOFF" '
-            .[] | select(.created_at < $cutoff)
-            | select((.metadata.container.tags | length) > 0)
-            | select([.metadata.container.tags[] | test("^(candidate-[0-9a-f]+|main-[0-9a-f]{7,40})$")] | all)
-            | select([.metadata.container.tags[] | IN("latest","previous","staging","staging-previous","main","dev")] | any | not)
-            | "\(.id)\t\(.metadata.container.tags | join(","))"' /tmp/vers.json > /tmp/prune.list
-          COUNT=$(grep -c . /tmp/prune.list || true)
-          echo "## 🧹 Candidate-Prune (${COUNT} versions)" >> "$GITHUB_STEP_SUMMARY"
-          if [ "${COUNT:-0}" = "0" ]; then echo "::notice::no stale candidate versions"; exit 0; fi
-          while IFS=$'\t' read -r ID TAGS; do
-            echo "deleting version ${ID} (${TAGS})"
-            echo "| ${ID} | ${TAGS} |" >> "$GITHUB_STEP_SUMMARY"
-            gh api -X DELETE "${BASE}/versions/${ID}"
-          done < /tmp/prune.list
-
-  telemetry:
-    name: "📈 Telemetry"
-    needs: [changes, lint-python, lint-dockerfile, code-quality, dead-code, todo-tracker, license-check, commit-lint, security, test-matrix, property-tests, mutation, api-contract, e2e, frontend, coverage, test-results, docker-build, branch-policy, verify-staging, require-staging-green, promote-prod, verify-prod, load-test, pr-summary, dast, prune-ghcr]
-    if: ${{ always() }}
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
-    timeout-minutes: 5
-    steps:
-      - name: Summary
-        env:
-          APP: ${{ inputs.app-name }}
-          START: ${{ needs.changes.outputs.start_time }}
-        run: |
-          NOW=$(date +%s)
-          DUR=$(( NOW - ${START:-$NOW} ))
-          {
-            echo "## 🚀 CI Telemetry — ${APP}"
-            echo "| Job | Result |"
-            echo "|-----|--------|"
-            echo "| lint-python | ${{ needs.lint-python.result }} |"
-            echo "| branch-policy | ${{ needs.branch-policy.result }} |"
-            echo "| security | ${{ needs.security.result }} |"
-            echo "| test-matrix | ${{ needs.test-matrix.result }} |"
-            echo "| e2e | ${{ needs.e2e.result }} |"
-            echo "| coverage | ${{ needs.coverage.result }} |"
-            echo "| test-results | ${{ needs.test-results.result }} |"
-            echo "| docker-build | ${{ needs.docker-build.result }} |"
-            echo "| lint-dockerfile | ${{ needs.lint-dockerfile.result }} |"
-            echo "| code-quality | ${{ needs.code-quality.result }} |"
-            echo "| dead-code | ${{ needs.dead-code.result }} |"
-            echo "| property-tests | ${{ needs.property-tests.result }} |"
-            echo "| mutation | ${{ needs.mutation.result }} |"
-            echo "| frontend | ${{ needs.frontend.result }} |"
-            echo "| verify-staging | ${{ needs.verify-staging.result }} |"
-            echo "| promote-prod | ${{ needs.promote-prod.result }} |"
-            echo "| verify-prod | ${{ needs.verify-prod.result }} |"
-            echo "| dast | ${{ needs.dast.result }} |"
-            echo "| **wall-clock** | **${DUR}s** |"
-          } >> "$GITHUB_STEP_SUMMARY"
-
   pr-summary:
     name: "📝 PR Summary"
     needs: [lint-python, security, test-matrix, coverage, docker-build]
@@ -1697,30 +990,3 @@ jobs:
           else
             gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" -f body="$BODY" >/dev/null
           fi
-
-  notify:
-    name: "🚨 Notify"
-    # Notify-Intelligenz (Lane B): läuft IMMER, meldet aber nur ZUSTANDS-ÜBERGÄNGE
-    # (grün→rot Alarm, rot→grün Recovery; Dauer-Rot/Dauer-Grün still). Der
-    # Orchestrator berechnet hier den EINEN Pipeline-Status aus ALLEN blockierenden
-    # Jobs (Codex-Review: vorher fehlten branch-policy/verify-prod/promote — ein
-    # rotes Prod-Verify wäre als success durchgerutscht); die Transition-Logik
-    # sitzt in reusable-notify. cancelled bleibt still (weder Alarm noch Recovery).
-    # license-check ist dual-gated (blocking auf main/tags!) — ohne ihn in needs
-    # wäre ein rotes main-Lizenz-Gate als success gemeldet worden (Codex-Fund R1).
-    needs: [changes, branch-policy, lint-python, lint-dockerfile, license-check, security, test-matrix, coverage, property-tests, e2e, api-contract, frontend, docker-build, verify-staging, require-staging-green, promote-prod, verify-prod, dast, load-test]
-    if: ${{ always() && needs.changes.result != 'skipped' }}
-    permissions:
-      contents: read
-      actions: read   # Transition-Detektor liest die Run-Historie (voriger Lauf gleicher Branch+Event)
-    # Input-Satz ist identisch mit der alten notify (@v1-flip-sicher); die neue
-    # Transition-Logik wird mit dem @v1-Move selbst aktiv.
-    uses: adza-group/shared-workflows/.github/workflows/reusable-notify.yml@v1
-    with:
-      app-name: ${{ inputs.app-name }}
-      status: ${{ contains(needs.*.result, 'failure') && 'failure' || (contains(needs.*.result, 'cancelled') && 'cancelled' || 'success') }}
-      branch: ${{ github.ref_name }}
-      sha: ${{ github.sha }}
-      run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-      runner-label: ${{ inputs.runner-label }}
-    secrets: inherit

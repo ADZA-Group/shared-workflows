@@ -30,7 +30,6 @@ jobs:
     uses: ./.github/workflows/reusable-security-scan.yml
     with:
       runner-label: '["ubuntu-latest"]'   # validate on ubuntu (bypasses LXC-104 block)
-      run-dependency-review: false   # needs a pull_request event
       run-pip-audit: false           # shared-workflows has no requirements.txt
       run-codeql: false              # finicky on a non-app repo; validate via real app in P4
       # Beweisweg fuer das Opt-in-Gate: auf einem Wegwerf-Branch mit Semgrep-Kanarienvogel dispatchen —

@@ -8,9 +8,9 @@ name: actionlint
 on:
   push:
     branches: [dev]
-    paths: [".github/workflows/**", "scripts/gate_matrix.py"]
+    paths: [".github/workflows/**", "scripts/gate_matrix.py", "scripts/check_docs.py", "README.md"]
   pull_request:
-    paths: [".github/workflows/**", "scripts/gate_matrix.py"]
+    paths: [".github/workflows/**", "scripts/gate_matrix.py", "scripts/check_docs.py", "README.md"]
 
 permissions:
   contents: read
@@ -39,3 +39,7 @@ jobs:
         run: |
           python3 -c "import yaml" 2>/dev/null || pip install --quiet pyyaml
           python3 scripts/gate_matrix.py
+      # Doku-Drift-Waechter (Etappe D, 2026-09-04): README-Input-Tabelle muss exakt die
+      # reusable-ci-Inputs nennen — drei Doku-Luegen an einem Tag waren der Ausloeser.
+      - name: Docs drift (scripts/check_docs.py)
+        run: python3 scripts/check_docs.py

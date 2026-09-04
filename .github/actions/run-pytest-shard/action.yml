@@ -36,9 +36,7 @@ runs:
       shell: bash
       env:
         COVERAGE_FILE: .coverage.${{ inputs.shard-name }}
-        FLAKE_OUT: flakes-${{ inputs.shard-name }}.json
-        FLAKE_SHARD: ${{ inputs.shard-name }}
-        ACTION_PATH: ${{ github.action_path }}
+        SHARD: ${{ inputs.shard-name }}
         # Audit 2026-09-03 (Fund 1+2): Inputs nur ueber env, nie als Shell-Quelltext.
         # test-paths ist eine Liste — bewusste Wortzerlegung per read -ra (Array).
         TEST_PATHS: ${{ inputs.test-paths }}
@@ -70,8 +68,8 @@ runs:
           done
         fi
         # Flaky mitigation: rerun failed tests (pytest-rerunfailures). NOTE: reruns do NOT
-        # appear in --junitxml (verified pytest 9.1.1 + rerunfailures 16.4, xunit1+xunit2);
-        # the flake radar plugin below captures them at the source instead.
+        # appear in --junitxml (verified pytest 9.1.1 + rerunfailures 16.4, xunit1+xunit2).
+        # Der observe-only Flake-Radar (Plugin + Ledger) wurde 2026-09-04 entfernt: kein Konsument.
         # ACHTUNG Paketname: `pytest-rerunfailures` (ohne Bindestrich in der Mitte).
         # Bis 2026-07-15 stand hier `pytest-rerun-failures` — das gibt es auf PyPI NICHT
         # (404), der Install schlug jedes Mal still fehl und `test-reruns` war seit
@@ -86,22 +84,11 @@ runs:
             echo "::warning::pytest_rerunfailures not importable — running WITHOUT --reruns"
           fi
         fi
-        # Flake Radar (observe-only): load the source-side rerun detector if present.
-        # File-guarded so a missing plugin can never turn the shard into a -p usage error.
-        # It only listens (logreport/sessionfinish) → never changes pytest's exit status.
-        FLAKEP=()
-        if [ -f "${ACTION_PATH}/_adza_ci_flake_radar.py" ]; then
-          export PYTHONPATH="${ACTION_PATH}${PYTHONPATH:+:$PYTHONPATH}"
-          FLAKEP=(-p _adza_ci_flake_radar)
-        else
-          echo "::warning::flake radar plugin missing at ${ACTION_PATH} — flake detection off (packaging error?)"
-        fi
         pytest "${SELECT[@]}" \
           --timeout="$TEST_TIMEOUT" \
           "${RERUN[@]}" \
-          "${FLAKEP[@]}" \
           --cov="$COV_SRC" --cov-report= \
-          --junitxml="junit-${FLAKE_SHARD}.xml" \
+          --junitxml="junit-${SHARD}.xml" \
           -p no:cacheprovider
 
     - name: Upload coverage data
@@ -122,13 +109,3 @@ runs:
         name: junit-${{ inputs.shard-name }}
         path: junit-${{ inputs.shard-name }}.xml
         retention-days: 7
-
-    - name: Upload flake report
-      if: always()
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-      continue-on-error: true
-      with:
-        name: flakes-${{ inputs.shard-name }}
-        path: flakes-${{ inputs.shard-name }}.json
-        retention-days: 7        # transport to the aggregator only; the 90d artifact is flake-report
-        if-no-files-found: ignore

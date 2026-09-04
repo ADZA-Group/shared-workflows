@@ -12,12 +12,11 @@ Teil 1 — docker-build (Audit 2026-09-03, Funde A + X):
     hart bei risky ...... lint-dockerfile, property-tests
     hart auf main/tags .. license-check
 
-Teil 2 — Deploy-Kette (Stufe 4, 2026-09-04): verify-staging, promote-prod,
-verify-prod duerfen nur laufen, wenn ihre harten Vorgaenger success sind:
-    verify-staging  nur bei docker-build success UND push-Event UND enable-push
-    promote-prod    nur bei docker-build success UND require-staging-green success
-    verify-prod     nur bei docker-build success UND (promote success ODER
-                    nicht-gated + promote skipped)
+Teil 2 — Deploy-Kette (Stufe 4, 2026-09-04; Entruempelung: promote-prod und
+require-staging-green entfernt, kein Caller nutzte gated-promotion):
+    verify-staging  nur bei docker-build success UND dev-Push UND enable-push
+                    (main deployt nie :staging — mit Versions-Assert waere main rot)
+    verify-prod     nur bei docker-build success UND main-Push UND enable-push
 
 Sicherheitsnetze gegen vakuum-gruen: Happy-Paths MUESSEN laufen. Exit 1 bei
 jedem Verstoss.
@@ -47,7 +46,6 @@ HARD_GATES = (
     "security",
     "branch-policy",
     "coverage",
-    "e2e",
     "lint-python",
     "lint-dockerfile",
     "property-tests",
@@ -78,7 +76,6 @@ def is_hard(gate: str, changes: dict, ref: str) -> bool:
         "security",
         "branch-policy",
         "coverage",
-        "e2e",
         "lint-python",
     ):
         return True
@@ -177,25 +174,21 @@ def check_docker_build(wf: dict) -> int:
 
 
 def check_deploy_chain(wf: dict) -> int:
-    """Stufe 4: verify-staging / promote-prod / verify-prod gegen ihre Vorgaenger."""
+    """Stufe 4: verify-staging / verify-prod gegen ihre Vorgaenger (Entruempelung 2026-09-04:
+    ohne promote-prod / require-staging-green; verify-staging nur auf dev)."""
     jobs = wf["jobs"]
-    codes = {
-        n: compile_if(jobs[n], n)
-        for n in ("verify-staging", "promote-prod", "verify-prod")
-    }
+    codes = {n: compile_if(jobs[n], n) for n in ("verify-staging", "verify-prod")}
     needs_of = {n: [x for x in jobs[n]["needs"]] for n in codes}
     input_space = [
         {
             "staging-url": su,
             "prod-url": pu,
             "deploy-prod": dp,
-            "gated-promotion": gp,
             "enable-push": ep,
         }
         for su in ("", "https://staging/health")
         for pu in ("", "https://prod/health")
         for dp in (True, False)
-        for gp in (True, False)
         for ep in (True, False)
     ]
     violations = 0
@@ -204,59 +197,32 @@ def check_deploy_chain(wf: dict) -> int:
     for inputs in input_space:
         for event in EVENTS:
             for ref in REFS:
-                for res in itertools.product(RESULTS, repeat=4):
-                    needs = dict(
-                        zip(
-                            (
-                                "docker-build",
-                                "verify-staging",
-                                "require-staging-green",
-                                "promote-prod",
-                            ),
-                            res,
-                        )
-                    )
+                for res in itertools.product(RESULTS, repeat=2):
+                    needs = dict(zip(("docker-build", "verify-staging"), res))
                     chg = {"light": "false"}
                     run = {
                         n: evaluate(codes[n], needs, chg, event, ref, inputs)
                         for n in codes
                     }
                     checked += 1
-                    # verify-staging: nur bei docker-build success, push-Event, enable-push
+                    # verify-staging: nur bei docker-build success, dev-Push, enable-push
+                    # (main pusht nie :staging — dort waere der Versions-Assert immer rot)
                     if run["verify-staging"] and not (
                         needs["docker-build"] == "success"
                         and event == "push"
+                        and ref == "refs/heads/dev"
                         and inputs["enable-push"]
                     ):
                         violations += 1
                         if violations <= 8:
                             print(
-                                f"VIOLATION verify-staging needs={needs} event={event} inputs={inputs}"
+                                f"VIOLATION verify-staging needs={needs} event={event} ref={ref} inputs={inputs}"
                             )
-                    # promote-prod: nur bei docker-build success + require-staging-green success
-                    if run["promote-prod"] and not (
-                        needs["docker-build"] == "success"
-                        and needs["require-staging-green"] == "success"
-                        and event == "push"
-                        and ref == "refs/heads/main"
-                    ):
-                        violations += 1
-                        if violations <= 8:
-                            print(
-                                f"VIOLATION promote-prod needs={needs} event={event} ref={ref} inputs={inputs}"
-                            )
-                    # verify-prod: nur bei docker-build success + (promote success | non-gated skipped)
-                    # + push-Event + enable-push (Codex: schedule/dispatch auf main deployt nichts,
-                    # ein Health-Flake haette sonst einen falschen Rollback ausgeloest)
+                    # verify-prod: nur bei docker-build success + main-Push + enable-push (Codex:
+                    # schedule/dispatch auf main deployt nichts — ein Health-Flake haette sonst
+                    # einen falschen Rollback ausgeloest)
                     if run["verify-prod"] and not (
                         needs["docker-build"] == "success"
-                        and (
-                            needs["promote-prod"] == "success"
-                            or (
-                                not inputs["gated-promotion"]
-                                and needs["promote-prod"] == "skipped"
-                            )
-                        )
                         and ref == "refs/heads/main"
                         and event == "push"
                         and inputs["enable-push"]
@@ -279,48 +245,28 @@ def check_deploy_chain(wf: dict) -> int:
     return 1 if violations else 0
 
 
-def check_require_staging_green(wf: dict) -> int:
-    """Stufe 4 (Codex): das Gate sitzt im run:-Skript, nicht im if: — strukturell pruefen,
-    sonst koennte das Skript entfernt werden, ohne dass diese Matrix rot wird."""
-    job = wf["jobs"]["require-staging-green"]
-    problems = []
-    if list(job.get("needs", [])) != ["verify-staging"]:
-        problems.append(f"needs != ['verify-staging']: {job.get('needs')}")
-    cond = " ".join(str(job.get("if", "")).split())
-    for must in (
-        "inputs.staging-url != ''",
-        "inputs.deploy-prod",
-        "github.ref == 'refs/heads/main'",
-        "github.event_name == 'push'",
-    ):
-        if must not in cond:
-            problems.append(f"if: fehlt '{must}'")
-    script = "\n".join(s.get("run", "") for s in job.get("steps", []))
-    # EINE zusammenhaengende Regex (Codex R2): Vergleich, `then` und `exit 1` muessen im
-    # selben if-Zweig liegen — zwei getrennte Treffer liessen `if … then echo; fi` +
-    # `if false; then exit 1; fi` als fail-open durch.
-    gate = re.compile(
-        r'if\s+\[\s*"\$\{\{\s*needs\.verify-staging\.result\s*\}\}"\s*!=\s*"success"\s*\];\s*then'
-        r"(?:(?!\bfi\b).)*?\bexit\s+1\b(?:(?!\bfi\b).)*?\bfi\b",
-        re.S,
-    )
-    if not gate.search(script):
-        problems.append(
-            "run: kein if-Zweig `[ needs.verify-staging.result != success ] → … exit 1 … fi`"
+def check_removed_jobs(wf: dict) -> int:
+    """Entruempelung 2026-09-04: diese Jobs duerfen NICHT wieder auftauchen, ohne dass die
+    Deploy-Kette hier neu modelliert wird (sonst prueft die Matrix an ihnen vorbei)."""
+    ghosts = [
+        j
+        for j in ("promote-prod", "require-staging-green", "e2e", "telemetry", "notify")
+        if j in wf["jobs"]
+    ]
+    if ghosts:
+        print(
+            f"::error::entfernte Jobs wieder vorhanden, Matrix-Modell veraltet: {ghosts}"
         )
-    for p in problems:
-        print(f"::error::require-staging-green: {p}")
-    print(
-        f"require-staging-green: structural checks {'ok' if not problems else 'FAILED'}"
-    )
-    return 1 if problems else 0
+        return 1
+    print("removed-jobs check ok")
+    return 0
 
 
 def main() -> int:
     wf = yaml.safe_load(WF.read_text(encoding="utf-8"))
     rc = check_docker_build(wf)
     rc |= check_deploy_chain(wf)
-    rc |= check_require_staging_green(wf)
+    rc |= check_removed_jobs(wf)
     return rc
 
 

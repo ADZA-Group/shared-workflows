@@ -129,18 +129,9 @@ jobs:
   # der Queue) — self-hosted Jobs aus diesem PUBLIC Repo werden nie bedient, und das
   # bleibt bewusst so (self-hosted + public = Fork-PR-Risiko). Der self-hosted-Pfad
   # (cosign-Cache) wird nach dem Release per Dispatch-Run einer privaten App gemessen.
-  smoke-promotion:
-    name: "🧪 Smoke — Promotion (crane)"
-    needs: prep
-    permissions:
-      contents: read
-      packages: write
-    uses: ./.github/workflows/_smoke-promotion.yml
-    secrets: inherit
-
   release:
     name: "🏷️ Tag ${{ needs.prep.outputs.version }} + move @v1"
-    needs: [prep, smoke-ci, smoke-push-ubuntu, smoke-promotion]
+    needs: [prep, smoke-ci, smoke-push-ubuntu]
     # Nur bei ECHTEM Erfolg aller Smokes (kein always(), kein skipped-Durchwinken).
     if: ${{ success() }}
     runs-on: ubuntu-latest

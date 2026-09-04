@@ -50,23 +50,11 @@ on:
         required: false
         type: boolean
         default: true
-      run-trivy:
-        required: false
-        type: boolean
-        default: true
       run-pip-audit:
         required: false
         type: boolean
         default: true
       run-codeql:
-        required: false
-        type: boolean
-        default: true
-      run-dependency-review:
-        required: false
-        type: boolean
-        default: true
-      run-opa:
         required: false
         type: boolean
         default: true
@@ -222,78 +210,6 @@ jobs:
           retention-days: 30
 
   # ── Trivy filesystem + IaC (dual-gate via exit-code) ──────────
-  trivy:
-    name: "🔍 Trivy FS"
-    if: ${{ inputs.run-trivy }}
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      # Advisory, aber SICHTBAR (Audit 2026-09-03, Stufe C): SARIF + Zaehler im Summary;
-      # Tool-Fehler = "nicht auswertbar", nie "0 Findings".
-      - name: Filesystem scan
-        id: trivy-fs
-        # Opt-in Dual-Gate (2026-09-04): `trivy-fs` in blocking-scanners ⇒ exit-code 1 bei
-        # CRITICAL/HIGH und kein continue-on-error auf main/tags bzw. bei force-blocking.
-        # Der config/IaC-Scan (inkl. MEDIUM) bleibt immer advisory.
-        continue-on-error: ${{ !(contains(format(',{0},', inputs.blocking-scanners), ',trivy-fs,') && (inputs.force-blocking || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))) }}
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
-        with:
-          scan-type: fs
-          scan-ref: .
-          format: sarif
-          output: trivy-fs.sarif
-          severity: CRITICAL,HIGH
-          exit-code: ${{ (contains(format(',{0},', inputs.blocking-scanners), ',trivy-fs,') && (inputs.force-blocking || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))) && '1' || '0' }}
-      - name: Config / IaC scan
-        id: trivy-config
-        continue-on-error: true
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
-        with:
-          scan-type: config
-          scan-ref: .
-          format: sarif
-          output: trivy-config.sarif
-          severity: CRITICAL,HIGH,MEDIUM
-          exit-code: '0'
-      - name: Trivy summary + artifact
-        if: always()
-        env:
-          FS_OUTCOME: ${{ steps.trivy-fs.outcome }}
-          CFG_OUTCOME: ${{ steps.trivy-config.outcome }}
-          FS_MODE: ${{ contains(format(',{0},', inputs.blocking-scanners), ',trivy-fs,') && (inputs.force-blocking || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && 'BLOCKING' || 'advisory' }}
-        run: |
-          python3 - <<'PY'
-          import json, os, pathlib
-          fs_mode = os.environ.get("FS_MODE", "advisory")
-          def count(path, outcome, mode="advisory"):
-              p = pathlib.Path(path)
-              # Im BLOCKING-Modus endet der fs-Scan bei Findings absichtlich mit Exit 1 —
-              # die geschriebene SARIF zaehlt dann trotzdem (kein Werkzeugfehler).
-              if (outcome != "success" and mode != "BLOCKING") or not p.exists():
-                  return f"nicht auswertbar (step {outcome}, file {'ok' if p.exists() else 'fehlt'})"
-              try:
-                  n = sum(len(r.get("results", [])) for r in json.load(open(p, encoding="utf-8")).get("runs", []))
-              except Exception as e:
-                  return f"nicht auswertbar ({e})"
-              return f"{n} Finding(s)" if n else "0 Findings"
-          fs = count("trivy-fs.sarif", os.environ.get("FS_OUTCOME"), fs_mode)
-          cfg = count("trivy-config.sarif", os.environ.get("CFG_OUTCOME"))
-          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as s:
-              s.write(f"## 🔍 Trivy (fs: {fs_mode}, config: advisory)\n| Scan | Ergebnis |\n|---|---|\n| fs (CRITICAL/HIGH) | {fs} |\n| config/IaC (CRIT/HIGH/MED) | {cfg} |\n\nDetails im Artefakt `trivy-sarif`\n")
-          print(f"trivy fs: {fs}; config: {cfg}")
-          PY
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        if: always()
-        continue-on-error: true
-        with:
-          name: trivy-sarif
-          path: |
-            trivy-fs.sarif
-            trivy-config.sarif
-          if-no-files-found: ignore
-          retention-days: 30
-
   # ── SCA: pip-audit (dual-gate) ────────────────────────────────
   pip-audit:
     name: "📦 Dep Audit"
@@ -399,33 +315,4 @@ jobs:
           retention-days: 30
 
   # ── Dependency Review (PR-only, public repos only) ────────────
-  dependency-review:
-    name: "📜 Dependency Review"
-    # dependency-review-action needs the Dependency Graph — on PRIVATE repos that
-    # requires GitHub Advanced Security ("not supported on this repository" without
-    # it). None of the fleet repos have GHAS, so the job was a red check on every
-    # PR that could structurally never turn green (Dependabot + cve-notify cover
-    # the same ground). Skip private repos entirely; if GHAS is ever purchased,
-    # drop the `!github.event.repository.private` clause.
-    if: ${{ inputs.run-dependency-review && github.event_name == 'pull_request' && !github.event.repository.private }}
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
-    timeout-minutes: 10
-    # Advisory on public repos too — never fail the whole security gate.
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294  # v5.0.0
-        with:
-          fail-on-severity: ${{ github.base_ref == 'main' && 'high' || 'critical' }}
-
   # ── OPA / conftest policy (dual-gate via composite input) ─────
-  opa:
-    name: "📋 OPA Policy"
-    if: ${{ inputs.run-opa }}
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - uses: adza-group/shared-workflows/.github/actions/opa-policy@v1
-        with:
-          blocking: 'false'

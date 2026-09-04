@@ -1,0 +1,98 @@
+# ═══════════════════════════════════════════════════════════════
+# Weekly Release — Autonomie-Etappe E (2026-09-04)
+#
+# Montags 06:00 UTC (oder per Dispatch): liegt dev vor @v1 und steht kein Hold, wird der
+# dev-HEAD als Kandidat released — ueber scripts/release-v1.sh + release.yml (Kandidaten-
+# Branch, Smokes auf Kandidaten-Refs, atomarer Tag-Push). Harte Vorbedingungen (Codex-
+# Design-Runde d): der SHA ist der aktuelle origin/dev-HEAD, fuer genau diesen SHA gibt es
+# einen erfolgreichen actionlint-Gate-Lauf, kein Lauf fuer den SHA ist noch offen,
+# keine Datei `.release-hold` (Not-Aus). Version: minor, wenn seit @v1 ein `feat`-Commit
+# liegt, sonst patch. Notfall-Release bleibt manuell: scripts/release-v1.sh <sha> vX.Y.Z --yes
+# ═══════════════════════════════════════════════════════════════
+
+name: "📅 Weekly Release"
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "Nur pruefen und die Version ausrechnen, nichts pushen"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: v1-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  decide-and-release:
+    name: "📅 dev → @v1 (wenn faellig)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: dev
+          fetch-depth: 0
+          # RELEASE_TOKEN (Admin-PAT, Contents r/w): GITHUB_TOKEN-Pushes loesen keine Workflows
+          # aus — der Kandidaten-Branch muss aber release.yml triggern. Nur dieser Job sieht ihn.
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
+
+      - name: Vorbedingungen pruefen
+        id: pre
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HAS_TOKEN: ${{ secrets.RELEASE_TOKEN != '' }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -o pipefail
+          [ "$HAS_TOKEN" = "true" ] || { echo "::error::Secret RELEASE_TOKEN fehlt — ohne Admin-PAT kann weder der Kandidat release.yml ausloesen noch der v1-Tag bewegt werden"; exit 1; }
+          DEV=$(git rev-parse origin/dev)
+          V1=$(git rev-parse 'v1^{}' 2>/dev/null || true)
+          echo "dev=${DEV:0:7} v1=${V1:0:7}"
+          if [ -f .release-hold ]; then echo "::notice::.release-hold vorhanden — kein Release"; echo "go=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [ "$DEV" = "$V1" ]; then echo "::notice::dev == @v1 — nichts zu releasen"; echo "go=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          git merge-base --is-ancestor "$V1" "$DEV" || { echo "::error::@v1 ($V1) ist kein Vorfahr von dev ($DEV) — Historie divergiert, kein Auto-Release"; exit 1; }
+          # Gate-Lauf fuer genau diesen SHA muss gruen sein (actionlint.yml = gate_matrix + check_docs)
+          OK=$(gh api "repos/$REPO/actions/workflows/actionlint.yml/runs?head_sha=$DEV&status=success&per_page=1" --jq '.total_count')
+          [ "${OK:-0}" -ge 1 ] || { echo "::error::kein erfolgreicher actionlint-Gate-Lauf fuer dev ${DEV:0:7} — kein Auto-Release"; exit 1; }
+          # eigener Lauf zaehlt nicht als offen (Codex-Fund: sonst blockiert sich der Weekly Release selbst)
+          OPEN=$(gh api "repos/$REPO/actions/runs?head_sha=$DEV&per_page=50" --jq "[.workflow_runs[] | select(.status!=\"completed\" and .id != $RUN_ID)] | length")
+          [ "${OPEN:-0}" -eq 0 ] || { echo "::error::${OPEN} Lauf/Laeufe fuer ${DEV:0:7} noch offen — spaeter"; exit 1; }
+          # Version: minor bei feat seit @v1, sonst patch
+          LAST=$(git tag -l 'v1.*.*' --sort=-v:refname | head -1)
+          [ -n "$LAST" ] || { echo "::error::kein v1.x.y-Tag gefunden"; exit 1; }
+          MAJ=${LAST#v}; MAJ=${MAJ%%.*}; REST=${LAST#v${MAJ}.}; MIN=${REST%%.*}; PAT=${REST#*.}
+          if git log --format=%s "${V1}..${DEV}" | grep -qE '^feat(\(|:|!)'; then MIN=$((MIN+1)); PAT=0; else PAT=$((PAT+1)); fi
+          NEXT="v${MAJ}.${MIN}.${PAT}"
+          git rev-parse -q --verify "refs/tags/${NEXT}" >/dev/null && { echo "::error::Tag ${NEXT} existiert bereits"; exit 1; }
+          echo "next=${NEXT} sha=${DEV:0:7} (last=${LAST}, $(git log --oneline "${V1}..${DEV}" | wc -l) Commits)"
+          { echo "go=true"; echo "sha=$DEV"; echo "next=$NEXT"; } >> "$GITHUB_OUTPUT"
+
+      - name: Kandidat pushen (release.yml uebernimmt)
+        if: ${{ steps.pre.outputs.go == 'true' && !inputs.dry-run }}
+        env:
+          SHA: ${{ steps.pre.outputs.sha }}
+          NEXT: ${{ steps.pre.outputs.next }}
+          MSYS_NO_PATHCONV: "1"
+        run: |
+          # keine git config (Hausregel): release-v1.sh committet mit -c Identity aus dem Ziel-Commit
+          scripts/release-v1.sh "$SHA" "$NEXT" --yes --no-wait
+          echo "## 📅 Weekly Release" >> "$GITHUB_STEP_SUMMARY"
+          echo "Kandidat \`release-${NEXT}\` aus dev \`${SHA:0:7}\` gepusht — release.yml entscheidet (Smokes → Tag)." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Dry-run Zusammenfassung
+        if: ${{ steps.pre.outputs.go == 'true' && inputs.dry-run }}
+        env:
+          SHA: ${{ steps.pre.outputs.sha }}
+          NEXT: ${{ steps.pre.outputs.next }}
+        run: |
+          echo "dry-run — wuerde ${NEXT} aus ${SHA:0:7} releasen" | tee -a "$GITHUB_STEP_SUMMARY"

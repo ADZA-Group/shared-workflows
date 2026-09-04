@@ -26,7 +26,6 @@ jobs:
     with:
       app-name: smoke-fixture
       runner-label: '["ubuntu-latest"]'   # validate the whole orchestrator on ubuntu (bypasses LXC-104 block)
-      cloud-runner-label: '["ubuntu-latest"]'   # v1-Linie faehrt changes/lints/tests auf cloud-runner-label
       coverage-threshold: 0
       # Glob statt Verzeichnis (Regressionstest 04.09.): run-pytest-shard MUSS Caller-Globs
       # expandieren (footballapp `tests/test_features_*.py`) — ein Verzeichnis-Pfad haette die
@@ -46,7 +45,5 @@ jobs:
       prod-url: ""
       deploy-prod: false
       enable-property-tests: true
-      enable-mutation: true
-      enable-load-test: false
       enable-dast: false
     secrets: inherit

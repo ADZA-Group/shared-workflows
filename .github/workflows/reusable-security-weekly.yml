@@ -100,30 +100,6 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   # ── Grype ─────────────────────────────────────────────────────
-  grype:
-    name: "🔐 Grype"
-    runs-on: ${{ fromJSON(inputs.runner-label) }}
-    timeout-minutes: 15
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - name: Install + run Grype
-        env:
-          GRYPE_SHA256: 3fad92940650e514c0aa2dad83526942a055e210cec09a8a59d9c024adc2b90e   # grype_0.115.0_linux_amd64.tar.gz (Audit 2026-09-03 Fund 7, Rest 04.09.)
-        run: |
-          # Release-Tarball mit sha256-Pin statt install.sh (Skriptinhalt war ungeprueft) — gleiches
-          # Muster wie osv-scanner/gitleaks: nach $RUNNER_TEMP, nie ueber PATH-Shortcuts.
-          curl -sSfL https://github.com/anchore/grype/releases/download/v0.115.0/grype_0.115.0_linux_amd64.tar.gz -o "$RUNNER_TEMP/grype.tgz"
-          echo "${GRYPE_SHA256}  $RUNNER_TEMP/grype.tgz" | sha256sum -c --quiet - || { echo "::error::grype checksum mismatch"; exit 1; }
-          tar -xzf "$RUNNER_TEMP/grype.tgz" -C "$RUNNER_TEMP" grype
-          "$RUNNER_TEMP/grype" dir:. --output table 2>&1 | tee /tmp/grype.txt || true
-          {
-            echo "## 🔐 Grype"
-            echo '```'
-            head -50 /tmp/grype.txt
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
   # ── TruffleHog ────────────────────────────────────────────────
   trufflehog:
     name: "🐷 TruffleHog"

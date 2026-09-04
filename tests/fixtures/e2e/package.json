@@ -1,7 +1,0 @@
-{
-  "name": "adza-e2e-fixture",
-  "private": true,
-  "devDependencies": {
-    "@playwright/test": "1.60.0"
-  }
-}

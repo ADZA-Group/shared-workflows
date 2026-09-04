@@ -4,36 +4,43 @@ Reusable CI/CD workflows and composite actions for all ADZA-Group repositories.
 The goal: every app's `.github/workflows/build.yml` is a ~25-line caller of
 `reusable-ci.yml` — one canonical pipeline, zero drift.
 
-> **Versioning:** during build-out these are referenced `@dev`; pin app callers to a
-> release tag (`@v1`) once cut. Note that `uses: ./` does NOT work across repos — sibling
-> composites/reusables are referenced by full path `adza-group/shared-workflows/...@<ref>`.
+> **Versioning:** app callers pin the floating release tag `@v1`. `dev` is the integration
+> branch (Claude + Codex after the pair gate); `@v1` moves only through `release.yml`
+> (candidate branch + smokes + atomic tag push), either manually via `scripts/release-v1.sh`
+> or automatically every Monday via `weekly-release.yml` (see "Operating model").
+> `uses: ./` does NOT work across repos — sibling composites/reusables are referenced by full
+> path `adza-group/shared-workflows/...@<ref>`.
 
 ## Reusable Workflows
 
 | Workflow | Purpose |
 |----------|---------|
-| `reusable-ci.yml` | **Orchestrator** — the one pipeline: changes → lint → security → test-matrix → coverage → docker build → telemetry |
-| `reusable-security-scan.yml` | gitleaks · Bandit · Semgrep · Trivy fs/IaC · pip-audit · CodeQL (py+js) · dependency-review · OPA. Gates: gitleaks **always hard**; Bandit-HIGH **blocks on main/tags and on risky pushes**; Semgrep, Trivy fs, pip-audit **advisory by default, opt-in dual-gate per app** via `security-blocking-scanners` (since 2026-09-04); Trivy IaC, CodeQL, dependency-review, OPA **always advisory** (policy decision — the Trivy *image* scan in `reusable-docker-build` blocks on main/tags) |
-| `reusable-docker-build.yml` | buildx + size gate + Trivy image gate + SBOM + smoke; optional GHCR push + cosign keyless + SLSA provenance + multi-arch + `:previous` backup |
-| `reusable-load-test.yml` | k6 with enforced p95 + error-rate budgets (advisory/blocking toggle) |
-| `reusable-notify.yml` | Discord / Slack / Telegram alerts |
-| `reusable-monitoring-dashboard.yml` | scheduled app + pipeline health dashboard |
-| `reusable-pipeline-analytics.yml` | scheduled analytics: success-rate + trend vs prior window + **flake radar** (aggregates the `flake-report` artifacts emitted by `reusable-ci`) |
-| `reusable-weekly-cleanup.yml` | scheduled run/artifact retention cleanup |
-| `reusable-config-ci.yml` | infra/config-only repos (compose only): yamllint + `docker compose config` + gitleaks + OPA/conftest on the compose; dual-gate, runner-label-driven |
+| `reusable-ci.yml` | **Orchestrator** — the one pipeline: changes → lint + security → test-matrix → coverage + test-results → docker build → verify-staging (dev) / verify-prod (main) |
+| `reusable-security-scan.yml` | gitleaks · Bandit · Semgrep · pip-audit · CodeQL (py+js). Gates: gitleaks **always hard**; Bandit-HIGH **blocks on main/tags and on risky pushes**; Semgrep and pip-audit **advisory by default, opt-in dual-gate per app** via `security-blocking-scanners`; CodeQL always advisory (nightly + main/tags only). The Trivy *image* scan in `reusable-docker-build` is the hard vulnerability gate on main/tags |
+| `reusable-docker-build.yml` | buildx (amd64) + size gate + Trivy image gate + SBOM + smoke; GHCR push of the *scanned* image + `:previous` backup; cosign keyless + SLSA provenance on main/tags |
 | `reusable-frontend.yml` | node lane: eslint + tsc + vitest + vite build + bundle-size gate + Lighthouse CI + **pa11y-ci accessibility gate** (dual-gate) |
-| `reusable-api-contract.yml` | boots the app (`start-app` composite) + runs **schemathesis** property-based fuzzing against its OpenAPI spec; opt-in, skips when no `openapi-spec` (dual-gate) |
+| `reusable-dast.yml` | OWASP ZAP baseline against staging (opt-in `enable-dast`, red on FAIL alerts only with `dast-blocking`) |
+| `reusable-config-ci.yml` | infra/config-only repos (compose only): yamllint + `docker compose config` + gitleaks + OPA/conftest on the compose; dual-gate |
+| `reusable-security-weekly.yml` | weekly sweep: pip-audit (all severities) · Trivy fs + deployed image · OSV · TruffleHog · Nuclei (prod URL) — advisory, results in the run summary |
+| `reusable-weekly-cleanup.yml` | run/artifact retention (age-based only, keeps red runs) |
+| `release.yml` / `weekly-release.yml` | `@v1` release pipeline (candidate branch → smokes → atomic tag push) and its Monday automation |
+
+Removed 2026-09-04 (no caller, no consumer): multi-arch builds, gated promotion, api-contract,
+e2e, load-test, mutation, pipeline-analytics, monitoring-dashboard, notify webhooks
+(Discord/Slack/Telegram), telemetry, TIA/flake ledger, OPA + Trivy-fs + dependency-review in
+the per-push security scan, Grype in the weekly sweep. Jarvis' CI cockpit and GitHub itself
+are the observers now.
 
 ## Composite Actions
 
 | Action | Purpose |
 |--------|---------|
-| `setup-python-deps` | **Debian-13 safe** — system `python3` + per-job venv + cached deps (replaces `setup-python-env`) |
-| `run-pytest-shard` | run one test shard → `.coverage.<shard>` data + junit; uploads both |
-| `coverage-gate` | `coverage combine` across shards (true union) → fail-under gate |
+| `setup-python-deps` | **Debian-13 safe** — system `python3` + per-job venv + cached deps |
+| `run-pytest-shard` | run one test shard → `.coverage.<shard>` data + junit; uploads both; expands globs/directories in `paths` |
+| `coverage-gate` | `coverage combine` across shards (true union) → fail-under gate + diff-coverage |
 | `start-app` | background-launch an app + poll health, output PID |
-| `opa-policy` | conftest/OPA Rego checks on Dockerfile + compose |
-| `health-check` | endpoint polling + security-header validation |
+| `opa-policy` | conftest/OPA Rego checks on compose (used by `reusable-config-ci`) |
+| `health-check` | endpoint polling + security-header check + version assert (`sha` / `commit` / `version` or `X-App-Version`) |
 
 ## Consuming `reusable-ci.yml`
 
@@ -44,12 +51,13 @@ name: CI/CD
 on:
   push:         { branches: [main, dev], tags: ['v*'] }
   pull_request: { branches: [main, dev] }
+  workflow_dispatch: {}
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:               # ⚠️ REQUIRED — see note below
   contents: read
-  actions: read         # CodeQL on private repos + notify transition detection (run history)
+  actions: read         # CodeQL on private repos (github/codeql-action#2117)
   packages: write
   id-token: write
   attestations: write
@@ -62,14 +70,17 @@ jobs:
     uses: adza-group/shared-workflows/.github/workflows/reusable-ci.yml@v1
     with:
       app-name: rechnungsapp
-      coverage-threshold: 49
+      coverage-threshold: 85
       test-shards: >-
-        [{"name":"backend","paths":"tests/test_models.py tests/test_auth.py"},
-         {"name":"integration","paths":"tests/integration/"}]
+        [{"name":"backend","paths":"tests/test_*.py"},
+         {"name":"integration","paths":"tests/integration/ tests/routes/"}]
       test-env: '{"RECHNUNG_TESTING":"1","RECHNUNG_DATABASE_URL":"postgresql://postgres:postgres@localhost:5432/test"}'
       install-system-deps: true     # tesseract/poppler for PDF/OCR apps
-      multi-arch: false
-    secrets: inherit
+      staging-url: "https://i-app.example/health"
+      staging-version-url: "https://i-app.example/health"
+      staging-watchtower-url: "http://192.168.1.203:8080"
+    secrets:
+      WATCHTOWER_STAGING_TOKEN: ${{ secrets.WATCHTOWER_STAGING_TOKEN }}
 ```
 
 ### ⚠️ Required caller permissions
@@ -78,24 +89,56 @@ A **called** reusable workflow's `GITHUB_TOKEN` can only be **equal to or more r
 than the caller's** — if the callee requests more, GitHub fails the run at **`startup_failure`**
 ("workflow file issue"). `reusable-ci` delegates to nested jobs that need elevated scopes
 (`docker-build` → `packages`/`id-token`/`attestations: write`; `security` → `security-events: write`;
-`test-results` → `checks: write`; `verify-prod` → `issues: write` for incident issues; `pr-summary` → `pull-requests: write` for sticky PR comments). Therefore the **caller MUST grant the `permissions:` block above**
-(workflow-level or on the `ci` job). Omitting it is the #1 adoption pitfall.
+`test-results` → `checks: write`; `verify-prod` → `issues: write`; `pr-summary` → `pull-requests: write`).
+Therefore the **caller MUST grant the `permissions:` block above**. Omitting it is the #1 adoption pitfall.
+Runner: every job runs on `runner-label` (default: the self-hosted proxmox runner on LXC 104).
 
 ### Key inputs (`reusable-ci.yml`)
+
+Every input of the orchestrator is listed here; `scripts/check_docs.py` (actionlint gate) fails when
+this table and `reusable-ci.yml` drift apart.
 
 | Input | Default | Notes |
 |-------|---------|-------|
 | `app-name` | *(required)* | image name defaults to `ghcr.io/adza-group/<app-name>` |
 | `test-shards` | *(required)* | JSON `[{name, paths, markers?, cov?}]` → dynamic test matrix. `paths` = space-separated pytest targets; since v1.11.1 `run-pytest-shard` expands shell globs (`tests/test_[a-i]*.py`) and directories itself and fails the shard on a token that matches nothing. `name` must be unique. |
-| `test-env` | `{}` | JSON env for test jobs (put the DB URL here; postgres+redis services are provided) |
+| `test-env` | `{}` | JSON env for test jobs (put the DB URL here; postgres+redis services are provided, `localhost:5432/6379` are rewritten to the dynamic service ports) |
+| `runner-label` | self-hosted proxmox | JSON array of runner labels for every job (`'["ubuntu-latest"]'` for repos without access to the org runners) |
+| `python-version` | `3.11` | interpreter for the test job (`python<version>` on PATH preferred, loud warning otherwise) |
+| `postgres-version` | `16-alpine` | postgres service image tag for the test jobs |
+| `enable-redis` | `false` | reserved — a redis service is always provided; accepted for caller compatibility |
+| `install-system-deps` | `false` | tesseract/poppler for PDF/OCR apps |
 | `coverage-threshold` | `50` | union-coverage gate (blocking) |
-| `install-system-deps` | `false` | tesseract/poppler |
-| `multi-arch` | `false` | amd64+arm64 (arm64 currently scanned via the amd64 representative — see CAVEATS) |
+| `diff-coverage-threshold` | `80` | coverage on changed lines (advisory on PR/dev, hard on main; main compares against `github.event.before`; tags off); `0` disables |
+| `enable-property-tests` | `true` | hypothesis lane (advisory on dev, blocking on risky pushes and main) |
+| `full-ci-on-dev-push` | `false` | `true` = security + property lanes also on dev/feature pushes (no CI diet) |
+| `risky-paths` | `[]` | JSON globs merged with the built-in risky defaults (auth/security/permissions/migrations/models/payment/billing/price/delete/purge, Dockerfile, docker-compose*): a hit switches the diet off and makes property-tests/hadolint/bandit blocking |
+| `full-ci-paths` | `[]` | JSON globs that force the full code lanes (tests, build, frontend) without hardening gates — e.g. `templates/**`, `static/**`, `translations/**` |
+| `security-blocking-scanners` | `""` | opt-in dual-gate per app, comma-separated from `semgrep,pip-audit`: the named scanners block on main/tags and on risky pushes, stay advisory on PR/dev. Unknown names fail the `changes` job. |
+| `has-frontend` | `false` | enable the frontend lane (`reusable-frontend.yml`) |
+| `frontend-dir` | `frontend` | frontend directory |
+| `a11y-url` | `""` | frontend lane: base URL for the pa11y scan (empty = serve the build output locally) |
+| `a11y-paths` | `/` | frontend lane: space-separated paths to a11y-scan |
+| `a11y-threshold` | `0` | frontend lane: max allowed pa11y errors per page |
+| `image-name` | `""` | GHCR image name override (default `ghcr.io/adza-group/<app-name>`) |
+| `image-size-limit-mb` | `800` | image size gate |
+| `dockerfile` | `Dockerfile` | Dockerfile path |
+| `docker-context` | `.` | docker build context |
+| `sign-image` | `true` | cosign keyless + SLSA provenance — on main/tags only (staging images stay unsigned; nothing in the deploy path verifies signatures) |
 | `enable-push` | `true` | GHCR push on `push` events (false for build-only) |
-| `security-blocking-scanners` | `""` | Opt-in dual-gate per app (2026-09-04), comma-separated from `semgrep,trivy-fs,pip-audit`: the named scanners block on main/tags and on risky pushes (`force-blocking`), stay advisory on PR/dev. Unknown names fail the `changes` job. Trivy config/IaC stays advisory. |
-| `dast-blocking` | `false` | Opt-in: DAST job goes red on FAIL-level alerts instead of advisory. Not a deploy gate (runs after verify-staging). |
-| `staging-watchtower-url` / `prod-watchtower-url` | `""` | Deterministic deploy (2026-09-04): base URL of the Watchtower HTTP API on the host (`http://192.168.1.203:8080`). verify-* POSTs `/v1/update` before polling, so the flip no longer waits for the poll interval. Requires the secret `WATCHTOWER_STAGING_TOKEN` / `WATCHTOWER_PROD_TOKEN` and `staging-version-url` / `prod-version-url` (the `changes` job fails fast otherwise). A failed trigger is a warning; the version assert stays the gate. |
-| `deploy-*` / verify | *(Phase 3b)* | deploy/verify tail not yet wired in the core orchestrator |
+| `enforce-branch-policy` | `true` | main pushes must come via dev (ff or `--no-ff`/PR merge); violations block docker-build |
+| `deploy-prod` | `true` | master switch for the verify tail (staging + prod) |
+| `staging-url` | `""` | staging health URL; verify-staging runs on dev pushes only (main never deploys `:staging`) |
+| `staging-version-url` | `""` | URL that reports the running version (`sha` / `commit` / `version` or `X-App-Version`); verify-staging polls until it equals `github.sha` |
+| `staging-watchtower-url` | `""` | deterministic deploy: base URL of the Watchtower HTTP API on the staging host (`http://192.168.1.203:8080`); verify-staging POSTs `/v1/update` before polling. Requires the secret `WATCHTOWER_STAGING_TOKEN` and `staging-version-url` (the `changes` job fails fast otherwise). A failed trigger is a warning; the version assert stays the gate |
+| `prod-url` | `""` | prod health URL; verify-prod runs on main pushes only, with auto-rollback `:previous` → `:latest` and an incident issue on failure |
+| `prod-version-url` | `""` | like `staging-version-url` for prod |
+| `prod-watchtower-url` | `""` | like `staging-watchtower-url` for prod (secret `WATCHTOWER_PROD_TOKEN`, `prod-version-url` required) |
+| `enable-dast` | `false` | ZAP baseline against `staging-url` after verify-staging |
+| `dast-blocking` | `false` | DAST job goes red on FAIL-level alerts instead of advisory. Not a deploy gate |
+
+Secrets (all optional): `WATCHTOWER_STAGING_TOKEN`, `WATCHTOWER_PROD_TOKEN` — map them explicitly in
+the caller's `secrets:` block (or use `secrets: inherit`).
 
 ## Config-only repos (paperless, cloudflare)
 
@@ -119,139 +162,77 @@ jobs:
 ```
 
 Gates: yamllint (relaxed) · `docker compose config` · gitleaks · OPA/conftest on the compose.
+
+## Security policy (= the code)
+
 gitleaks is always hard. Bandit-HIGH blocks on main/tags and on risky pushes (`force-blocking`).
-Semgrep, Trivy fs/IaC, pip-audit, CodeQL, dependency-review and OPA are **advisory by default** — a
-deliberate policy (Semgrep noise blocked main in v1.3.x); the Trivy *image* scan in
-`reusable-docker-build` is the hard vulnerability gate on main/tags. Since 2026-09-04 an app can
-opt in per scanner via `security-blocking-scanners` (Semgrep, Trivy fs, pip-audit become dual-gated
-like Bandit: blocking on main/tags and on risky pushes) and `dast-blocking`; load-test stays
-advisory. Measured before offering the switch: rechnungsapp main had 2 Semgrep findings and 0
-pip-audit findings, so enabling `semgrep` there turns main red until those are fixed or ignored.
-Advisory jobs use job-level `continue-on-error`; measured 2026-09-04 (run 33847987446 in this
-repo): a failed job of that kind reports `needs.<job>.result == 'success'`, so advisory jobs can
-never block `docker-build`. Audit 2026-09-03: docs match the code.
+Semgrep and pip-audit are **advisory by default** (Semgrep noise blocked main in v1.3.x); an app opts
+in per scanner via `security-blocking-scanners` (dual-gated like Bandit) and via `dast-blocking`.
+CodeQL runs nightly and on main/tags, always advisory (no GHAS in the fleet). The Trivy *image* scan
+in `reusable-docker-build` is the hard vulnerability gate on main/tags. Measured 2026-09-04 before
+offering the switch: rechnungsapp has `pip-audit` and `semgrep` enabled (0 active findings after the
+defusedxml fix), recyclage has 2 and footballapp 16 active Semgrep findings, so the switch stays
+per app. Advisory jobs use job-level `continue-on-error`; measured 2026-09-04 (run 33847987446 in
+this repo): a failed job of that kind reports `needs.<job>.result == 'success'`, so advisory jobs can
+never block `docker-build`. `scripts/gate_matrix.py` brute-forces the docker-build and verify gates
+on every workflow change.
 
-## Frontend accessibility & performance
+**Nightly = security only:** on `schedule` events the `changes` job switches the code lanes off
+(tests/build/frontend already ran for the same pinned dependencies on the push); only the security
+lane runs (CodeQL, pip-audit, Semgrep, Bandit, gitleaks).
 
-`reusable-frontend.yml` runs a **pa11y-ci accessibility gate** after build (dual-gate,
-advisory on PR/dev, blocking on main/tags):
+## Deploy model (Watchtower, deterministic since 2026-09-04)
 
-| Input | Default | Notes |
-|-------|---------|-------|
-| `a11y-enabled` | `true` | run pa11y-ci |
-| `a11y-url` | `""` | base URL to scan; empty = serve the build output locally |
-| `a11y-paths` | `"/"` | space-separated paths (e.g. `"/ /login /about"`) |
-| `a11y-threshold` | `0` | max pa11y errors per page |
-| `lighthouse-url` | `""` | Lighthouse CI target (empty = skip) |
-| `lighthouse-config` | `""` | path to a `lighthouserc.json` budget (empty = recommended preset) |
+`dev` push → `:staging` image → verify-staging POSTs the Watchtower HTTP API on the staging host
+(`staging-watchtower-url`, token from the host's `.env`), then polls `staging-version-url` until the
+running version equals `github.sha` (budget 40 × 30 s); on failure it retags `:staging-previous` →
+`:staging`. `main` push → `:latest` image (+ `:previous` backup) → verify-prod does the same against
+prod (`prod-watchtower-url`, `prod-version-url`) and opens an incident issue on failure. Watchtower
+polling stays on as fallback (`WATCHTOWER_HTTP_API_PERIODIC_POLLS=true`). Without a Watchtower URL
+the verify jobs fall back to polling only; without a version URL they are 200-only (inert).
 
-A budget template lives at `tests/fixtures/frontend/lighthouserc.json` (perf ≥ 0.8,
-a11y ≥ 0.9). For server-rendered apps (Jinja/HTMX), point `a11y-url` at a deployed
-staging URL; for SPAs, leave it empty to scan the local build.
+### Version App-Contract
+The app must expose its git SHA: `GET /health → {"status":"ok","sha":"<GIT_SHA>"}` (`commit` and
+`version` are accepted too, or the header `X-App-Version`). `GIT_SHA` is passed as a build arg by
+`reusable-docker-build`; the app's Dockerfile consumes it (`ARG GIT_SHA` → `ENV APP_SHA`).
 
-## Image signing & verification
+### Branch policy (enforced, default on)
+Every `main` push is checked by `branch-policy`: HEAD must lie on `dev` (ff-merge) or be a merge
+commit with dev as second parent (`--no-ff`/PR). Violation ⇒ run red, docker-build blocked ⇒ no image,
+no deploy. Server-side branch protection is a paid feature on the private org repos, so this is the
+enforcement. Emergency switch: `enforce-branch-policy: false`.
 
-Every image pushed by `reusable-ci.yml` (and `reusable-docker-build.yml` when `push: true`)
-is signed by default via **cosign keyless** (Fulcio OIDC, `sigstore/cosign-installer@v4.1.2`)
-and gets a **SLSA build provenance attestation** (`actions/attest-build-provenance@v2`).
-Both steps run `continue-on-error: true` — they are best-effort: a Sigstore/Rekor outage,
-a paid-only org limit, or a missing scope will produce an advisory red step but never block
-the push.
+## Image signing
 
-### Opt-out
-
-Set `sign-image: false` in your caller `with:` block only if you have a specific reason
-(e.g. you call `reusable-docker-build` from a context without `id-token: write`). The
-default is `true` for all ADZA-Group apps.
-
-### Verifying a signed image externally
+Images pushed from `main`/tags are signed with **cosign keyless** and get a **SLSA build provenance
+attestation**; both steps are best-effort (`continue-on-error`). Staging images are deliberately not
+signed (2026-09-04): nothing in the deploy path verifies signatures, Watchtower pulls whatever the tag
+points to. Verify externally:
 
 ```bash
-# 1. Cosign signature (Fulcio keyless, Rekor transparency log)
 cosign verify \
   --certificate-identity-regexp '^https://github.com/ADZA-Group/<app>/' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
   ghcr.io/adza-group/<app>:<tag>
-
-# 2. SLSA build provenance attestation (GitHub-issued)
-gh attestation verify oci://ghcr.io/adza-group/<app>:<tag> \
-  --repo ADZA-Group/<app>
+gh attestation verify oci://ghcr.io/adza-group/<app>:<tag> --repo ADZA-Group/<app>
 ```
 
-For an app under a user namespace (e.g. `azad-ahmed/mitarbeiter-app`), adjust the
-`certificate-identity-regexp` and `--repo` accordingly.
+## Operating model (Azad + Claude, since 2026-09-04)
 
-### Optional hard-gate
-
-The verify-side `require-signed-images` repo variable (consumed by `verify-prod`) is
-**opt-in** and stays opt-in in Phase B — flip it per-repo only after a few green signing
-runs are observed in the docker-build job log.
-
-## Deploy environments (opt-in)
-
-`reusable-ci.yml` accepts `prod-environment` / `staging-environment` (default `""` = none).
-Setting `prod-environment: production` attaches the `verify-prod` job to a GitHub
-Environment — giving a **Deployments tab + history** for free.
-
-**Required-reviewer approval is a paid feature on private repos** (`gh api` returns
-`422 "billing plan supports the required reviewers protection rule"`). On the free
-private org, the environment exists for tracking but cannot enforce approval. To enable
-approval: upgrade to GitHub Team/Pro, then
-`gh api -X PUT repos/<r>/environments/production -f 'reviewers[][type]=User' -F 'reviewers[][id]=<id>'`.
-
-**Note on the watchtower deploy model:** deploys are watchtower pull-based (no gate-able
-deploy job). An environment on `verify-prod` gates the health-check; for true *pre-deploy*
-approval you would gate the `:latest` push in `docker-build` (separate change, not wired).
-
-## API contract testing (opt-in)
-
-`reusable-ci.yml` accepts `openapi-spec` (+ `api-boot-command`, `api-health-url`,
-`api-base-url`, `api-requirements`). When set, the `api-contract` job boots the app and
-runs **schemathesis** (property-based fuzzing) against the spec; when empty (the default)
-the job is **skipped**. Dual-gate.
-
-**Prerequisite (app-code, not CI):** the ADZA Flask apps expose no OpenAPI spec yet. To
-adopt: emit one (`flask-smorest`/`apispec` or a static `openapi.yaml`) and set
-`openapi-spec: "http://localhost:<port>/openapi.json"` + `api-boot-command` on the caller.
-
-## Caveats / known gaps
-
-- **Multi-arch:** arm64 layers are not separately Trivy-scanned (amd64 is the gated representative). Decide per-arch scanning before relying on `multi-arch: true` for security gating.
-- **`reusable-load-test`** is built but needs a live staging target — not runtime-validated.
-- ~~Self-hosted port collisions~~ solved: test jobs use GHA-assigned dynamic service ports and rewrite `localhost:5432/6379` in `test-env` transparently.
-- ~~Deploy tail / frontend / DAST / mutation / release "planned"~~ — all wired in the orchestrator:
-  deploy tail (verify-staging → require-staging-green → promote → verify-prod + auto-rollback + incident issue),
-  frontend lane (`has-frontend`), DAST (`enable-dast`, needs `staging-url`), mutation (opt-in, advisory),
-  release automation (`reusable-release.yml` on tag push). This section previously understated the orchestrator.
-
-### Version App-Contract (C2, opt-in)
-Damit `verify-staging`/`verify-prod` prüfen, dass das NEUE Image läuft (nicht nur HTTP 200), muss die App
-ihre Git-SHA ausgeben: `GET /health → {"status":"ok","sha":"<GIT_SHA>"}` (oder Header `X-App-Version`).
-SHA via Docker-Build-Arg/ENV ins Image. Dann im Caller `staging-version-url`/`prod-version-url` setzen —
-ohne diese Inputs bleibt das Verhalten 200-only (inert).
-
-### e2e (Phase G, opt-in)
-`enable-e2e: true` + `e2e-boot-command` + `e2e-health-url` + Playwright-Specs unter `e2e/` (package.json
-pinnt `@playwright/test` passend zum Container-Image, aktuell `1.60.0`). Läuft pre-merge hermetisch
-(postgres/redis + `start-app` im `mcr.microsoft.com/playwright`-Container), dual-gate (advisory dev, hart main).
-
-### Branch-Policy (C1-It.2 — enforced, default an)
-Jeder `main`-Push wird vom `branch-policy`-Job geprüft: HEAD muss auf `dev` liegen (ff-Merge) oder
-ein Merge-Commit mit dev als zweitem Parent sein (`--no-ff`/PR). Verstoß ⇒ Run rot, docker-build/
-promote geblockt ⇒ kein Image, kein Deploy. Free-Tier-Enforcement: echte Server-Side-Protection ist
-auf den privaten Org-Repos paid (API-Versuch 2026-06-09: footballapp/recyclage-app/rechnungsapp →
-HTTP 403 „Upgrade to GitHub Pro"; MitarbeiterApp als User-Repo: Force-Push-+Deletion-Block aktiviert).
-Not-Aus: `enforce-branch-policy: false` (Bibliotheks-Schalter, kein Break-Glass).
-
-### Gated Promotion (C1-It.2 — opt-in)
-`gated-promotion: true` (REQUIRES `staging-url`): main baut+pusht `:candidate-<sha>` statt `:latest`.
-`promote-prod` retagt erst nach `require-staging-green` digest-stabil auf `:latest` (Backup
-`:latest`→`:previous` inklusive) → Watchtower deployt Prod gegatet. Staging rot ⇒ Prod unverändert,
-Candidate liegt bereit; verify-prod skippt dann (kein False-Rollback). **Manuelles Promote nach Fix:**
-`docker buildx imagetools create --tag ghcr.io/adza-group/<app>:latest ghcr.io/adza-group/<app>:candidate-<sha>`
-**Rollback:** unverändert `:previous` → `:latest` (verify-prod macht das bei rotem Health-Check automatisch).
-**Bekannt (Follow-up vor Pilot):** `:candidate-*`-Tags akkumulieren in GHCR — `prune-ghcr` löscht nur
-untagged Versions; Candidate-Cleanup (älter als N Runs) gehört in eine Folge-Iteration.
+- **dev** is where Claude (with Codex as reviewer) lands changes after the pair gate: actionlint +
+  `gate_matrix.py` + `check_docs.py` run on every workflow change (`actionlint.yml`).
+- **@v1** moves only through `release.yml`: candidate branch with rewritten internal refs, smokes on
+  the candidate (full orchestrator run, GHCR push on ubuntu), atomic tag push with `RELEASE_TOKEN`.
+- **Monday 06:00 UTC** `weekly-release.yml` releases dev automatically when dev is ahead of `@v1`,
+  the actionlint gate is green for exactly that SHA, no run for it is still open and no
+  `.release-hold` file exists (`touch .release-hold` = emergency stop). Version: minor when a `feat`
+  commit landed since `@v1`, otherwise patch. Manual release any time:
+  `scripts/release-v1.sh <sha> vX.Y.Z --yes`.
+- **Fleet callers** pin `@v1`; removing an input from the orchestrator requires removing it from every
+  caller *before* the release (unknown inputs are a `startup_failure`).
+- **Dependabot** PRs in the app repos are merged nightly by Jarvis (`routines/code-watch.md`) when the
+  run for the exact head SHA is green; in this repo they are cherry-picked onto dev (the gh token
+  lacks the `workflow` scope for API merges of workflow files).
 
 ## Releasing `@v1` (autonom, Kandidaten-Branch)
 
@@ -262,9 +243,17 @@ scripts/release-v1.sh <sha> vX.Y.Z [--yes] [--dry-run] [--no-wait]
 Das Skript baut in einem Wegwerf-Worktree den Kandidaten-Branch `release-vX.Y.Z` = `<sha>` + ein
 Commit, der alle internen Refs `adza-group/shared-workflows/...@v1` auf `@release-vX.Y.Z` umschreibt
 (damit testen die Smokes den Kandidaten selbst, auch in verschachtelten Aufrufen) und `.release-source`
-ablegt. `release.yml` laeuft auf dem Branch: Kandidaten-Check → Smokes (Orchestrator, Docker-Push auf
-ubuntu und self-hosted, Promotion) → atomarer Tag-Push (`vX.Y.Z` + `v1`) auf den Original-SHA → Branch-
-Cleanup. Der Tag-Push braucht das Repo-Secret `RELEASE_TOKEN` (fine-grained PAT eines Repo-Admins,
+ablegt. `release.yml` laeuft auf dem Branch: Kandidaten-Check → Smokes (Orchestrator mit voller CI,
+Docker-Push auf ubuntu) → atomarer Tag-Push (`vX.Y.Z` + `v1`) auf den Original-SHA → Branch-Cleanup.
+Der Tag-Push braucht das Repo-Secret `RELEASE_TOKEN` (fine-grained PAT eines Repo-Admins,
 `contents: write`), weil das Ruleset `protect-v1-tag` nur Admins bypassen laesst und GitHub weder die
-Actions-Integration noch (org-seitig deaktivierte) Deploy-Keys zulaesst. Ohne Secret bleibt der Lauf am
-Tag-Push stehen (Tags unberuehrt) und kann nach Anlage per `gh run rerun <id> --failed` fortgesetzt werden.
+Actions-Integration noch (org-seitig deaktivierte) Deploy-Keys zulaesst. `release.yml` prueft das Token
+vor den Smokes und warnt 14 Tage vor Ablauf. Ohne Secret bleibt der Lauf am Tag-Push stehen (Tags
+unberuehrt) und kann nach Anlage per `gh run rerun <id> --failed` fortgesetzt werden.
+
+## Caveats / known gaps
+
+- Only `linux/amd64` images are built and scanned (multi-arch removed 2026-09-04).
+- The Watchtower HTTP API must be reachable from the runner (LAN); hosted runners cannot trigger it — the
+  verify jobs then fall back to polling.
+- Self-hosted runner LXC 104 is the single runner (deliberate); `actions/cache` is never used on it.
