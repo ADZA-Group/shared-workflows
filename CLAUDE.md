@@ -7,6 +7,38 @@
 > Fleet-Beweis: rechnungsapp Run 33750934660 (Attempt 2 grün; Attempt 1 fiel im ALTEN zweiten buildx-Push an
 > „failed to fetch anonymous token … ghcr.io/token … 403" — genau der Schritt, den die Audit-Welle unten abschafft).
 >
+> **✅ RELEASED 2026-09-04 MITTAGS AUTONOM (Run 33849447536, Kandidat aus dev `f92e6cf`, ls-remote-verifiziert): `@v1` = `v1.11.2` = `f92e6cf`** — Inhalt: Opt-in Dual-Gate, `dast-blocking`, grype-sha256, Dependabot-Bumps (PR #16), Doku. Kandidaten-Branch vom Workflow geloescht.
+> **🧹 2026-09-04 MITTAGS — „alle offenen Punkte weiter" (Pair Claude+Codex, 2 Runden, 2 Doku-Funde umgesetzt), dev `f92e6cf`:**
+> **Opt-in Dual-Gate pro App:** `security-blocking-scanners` (CSV aus semgrep,trivy-fs,pip-audit) + `dast-blocking` in reusable-ci; Default
+> bleibt advisory (Policy-Entscheid liegt beim Caller). changes-Job normalisiert + validiert (unbekannter Name ⇒ exit 1), reusable-security-scan
+> bekommt `blocking-scanners`; Semgrep `--error` nur im Blocking-Modus, Trivy-fs `exit-code` 1, pip-audit gibt den Exit erst NACH dem Summary
+> weiter (`bash -e` brach das Summary bei Funden ab — war schon immer so), Summaries zaehlen im Blocking-Modus die SARIF auch bei Step-Failure.
+> **Entscheidungsdaten GEMESSEN:** rechnungsapp main (Run 33517302434) Semgrep 2 Findings (dynamic-urllib, defused-xml), Nightly dev 3;
+> pip-audit 0; Trivy-fs ohne Zaehler (vor Stufe C). recyclage/footballapp haben seit >30 Tagen keinen main-CI-Run (Cleanup-Retention) ⇒
+> nicht messbar. Konsequenz: `semgrep` scharf = rechnungsapp-main sofort rot, bis die 2 Findings gefixt/ignoriert sind.
+> **CoE-Messung (schliesst die ANNAHME des Audits):** Run 33847987446 in diesem Repo — Job mit `continue-on-error: true` und rotem Step hat
+> API-Conclusion `failure`, aber `needs.<job>.result` == `success`, Run gruen ⇒ advisory Jobs koennen docker-build nie blocken.
+> **grype:** Release-Tarball v0.115.0 mit sha256 `3fad9294…2b90e` nach `$RUNNER_TEMP` (Layout GEMESSEN: grype auf Top-Level). Damit ist Fund 7 komplett.
+> **MitarbeiterApp (azad-ahmed/MitarbeiterApp, privat, inert):** Dependabot-Backlog aufgeloest — #35 (frontend minor/patch), #32 (pyjwt), #15
+> (pillow) gemergt (CI gruen, kein Deploy); #13/#14 (setup-python/build-push-action) und #16 (flask-cors 6) von Dependabot selbst als obsolet
+> geschlossen (Thin-Caller nutzt die Actions nicht mehr). Offen bleibt nur Azads eigener PR #19. Jarvis kann das Repo nicht bedienen (S1-Token).
+> **104-Cron (P3 R) GEMESSEN:** `/opt/runner-backup/backup-credentials.sh` sichert woechentlich NUR die Runner-Registrierung (.runner/.credentials/
+> .env/.service + controller-Skripte) GPG-symmetrisch (AES256, Key `/root/.runner-backup-key`), 4 Stueck à 14 KB, 84 KB gesamt. Empfehlung: behalten —
+> kein Daten-Backup im Sinne der Fleet-Regel, sondern Re-Registrierungs-Sicherung nach LXC-Verlust. Entscheid Azad.
+> **Org-Policy (P2 G Rest) GEMESSEN:** `allowed_actions: all`. Inventar aller `uses:` in allen 8 Org-Repos (default+main+dev): ausser `actions/*`,
+> `github/*` und `./` nur: aquasecurity/trivy-action · dependabot/fetch-metadata · docker/{build-push,login,metadata,setup-buildx,setup-qemu}-action ·
+> dorny/paths-filter · EnricoMi/publish-unit-test-result-action · googleapis/release-please-action · ossf/scorecard-action · sigstore/cosign-installer ·
+> softprops/action-gh-release · trufflesecurity/trufflehog. Vorschlag (Azad, org-weit, reversibel):
+> `gh api -X PUT orgs/ADZA-Group/actions/permissions -f enabled_repositories=all -f allowed_actions=selected` und
+> `gh api -X PUT orgs/ADZA-Group/actions/permissions/selected-actions -F github_owned_allowed=true -F verified_allowed=true --input allowlist.json`
+> mit `patterns_allowed` = obige Liste als `owner/repo@*` (MitarbeiterApp ist User-Repo, nicht betroffen). Nicht angewendet: Blast-Radius fleetweit.
+> **cosign-Cache-Beweis:** footballapp taugt nicht (`sign-image: false`, Attestations = paid); recyclage-Dockerfile-Kommentar `a086bce` (risky ⇒
+> nicht-light, self-hosted) ist der Beweistraeger — Ergebnis s. naechster Block.
+> **Opt-in-Gate GEMESSEN (Wegwerf-Branch `proof-blocking` mit Semgrep-Kanarienvogel, `_smoke-security-scan` per Dispatch, danach geloescht):**
+> (i) `blocking-scanners=semgrep` + `force-blocking=true` → Run 33849433971: Semgrep-Job ROT (`--error`), Summary „BLOCKING … 3 Finding(s)";
+> Bandit ROT (Dual-Gate wie bisher), Trivy-fs gruen (nicht in der Liste). (ii) `force-blocking=true` ohne Liste → Run 33849512854: Semgrep
+> gruen/advisory mit gezaehlten 3 Findings, Bandit ROT. (iii) `blocking-scanners=semgrep` ohne force auf Nicht-main → Run 33849588446: alles
+> gruen (Dual-Gate greift ausserhalb main/tags nur mit force). Der Beweis nutzt das lokale `./…/reusable-security-scan.yml` = exakt dev f92e6cf.
 > **✅ RELEASED 2026-09-04 AUTONOM (Run 33844735506, Kandidat aus dev `8fee14b`, ls-remote-verifiziert): `@v1` = `v1.11.1` = `8fee14b`.**
 > Inhalt (Stufen 0–6 der „was machen wir noch besser"-Runde, Pair Claude+Codex, 3 Runden, keine offenen Funde):
 > **0** Glob-Regression aus der env-Umstellung gefixt — `run-pytest-shard` expandiert `TEST_PATHS` wieder per Shell
