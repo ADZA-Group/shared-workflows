@@ -8,7 +8,11 @@
 > „failed to fetch anonymous token … ghcr.io/token … 403" — genau der Schritt, den die Audit-Welle unten abschafft).
 >
 > **🤖 2026-09-03 „PERFEKT + AUTONOM"-WELLE (Stufen A–F, Pair Claude+Codex, Reihenfolge B→C→D→E→F→A):**
-> **STAND ABENDS: Kandidat `release-v1.11.0` (Branch 00d14b1 = dev 61b1928 + Rewrite) — Release-Run 33762903054: prep + ALLE
+> **✅ RELEASED 2026-09-04 AUTONOM (Run 33762903054 Attempt 2 nach Secret `RELEASE_TOKEN`, ls-remote-verifiziert): `@v1` = `v1.11.0` = `61b1928`.**
+> Kandidaten-Branch vom Workflow geloescht. Erster Fleet-Run auf v1.11.0 = rechnungsapp (Caller auf `full-ci-paths` umgestellt).
+> Offen: cosign-Cache-Pfad auf 104 wird erst beim naechsten NICHT-light Push (risky oder main) real durchlaufen.
+> **Ablauf kuenftig: `scripts/release-v1.sh <sha> vX.Y.Z --yes` — Agent darf; Tag-Push laeuft ueber RELEASE_TOKEN (Admin-PAT).**
+> **STAND 03.09. ABENDS (historisch): Kandidat `release-v1.11.0` (Branch 00d14b1 = dev 61b1928 + Rewrite) — Release-Run 33762903054: prep + ALLE
 > Smokes GRÜN auf Kandidaten-Refs (Orchestrator volle CI inkl. Security-Lane mit SARIF-Steps, Docker-Push ubuntu, Promotion/crane);
 > Tag-Job ROT mit `GH013: Repository rule violations found for refs/tags/v1` (atomarer Push ⇒ auch v1.11.0 NICHT angelegt, @v1 =
 > 98d49c7 = v1.10.7 unverändert). Branch bleibt stehen. NÄCHSTER SCHRITT (Azad): fine-grained PAT (nur dieses Repo, Contents
