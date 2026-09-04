@@ -36,6 +36,9 @@
 > nicht-light, self-hosted) ist der Beweistraeger. **GEMESSEN Run 33848959344 (proxmox-runner-3):** „Install cosign (self-hosted, cached +
 > verified)" success, „Cosign sign (keyless)" success, „SLSA build provenance" success, Verify Staging success — der cosign-Cache-Pfad auf 104
 > (Fund D) ist damit real durchlaufen; der letzte offene Beweis des Audits ist geschlossen.
+> **Erste Opt-in-Aktivierung (Azad, 04.09. mittags):** rechnungsapp-Caller `security-blocking-scanners: "pip-audit"` (dev f173f80) — blockt
+> auf main/tags und bei risky, advisory sonst; Stand 0 CVEs. GEMESSEN Push-Run 33850175205: changes-Job „Opt-in blocking scanners: pip-audit"
+> (Validierung + Durchreichung). Semgrep bewusst nicht (2 Findings auf main). Das BLOCKING-Label erscheint erst beim naechsten main-Push.
 > **Opt-in-Gate GEMESSEN (Wegwerf-Branch `proof-blocking` mit Semgrep-Kanarienvogel, `_smoke-security-scan` per Dispatch, danach geloescht):**
 > (i) `blocking-scanners=semgrep` + `force-blocking=true` → Run 33849433971: Semgrep-Job ROT (`--error`), Summary „BLOCKING … 3 Finding(s)";
 > Bandit ROT (Dual-Gate wie bisher), Trivy-fs gruen (nicht in der Liste). (ii) `force-blocking=true` ohne Liste → Run 33849512854: Semgrep
