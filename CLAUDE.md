@@ -7,6 +7,36 @@
 > Fleet-Beweis: rechnungsapp Run 33750934660 (Attempt 2 grün; Attempt 1 fiel im ALTEN zweiten buildx-Push an
 > „failed to fetch anonymous token … ghcr.io/token … 403" — genau der Schritt, den die Audit-Welle unten abschafft).
 >
+> **✅ RELEASED 2026-09-04 AUTONOM (Run 33844735506, Kandidat aus dev `8fee14b`, ls-remote-verifiziert): `@v1` = `v1.11.1` = `8fee14b`.**
+> Inhalt (Stufen 0–6 der „was machen wir noch besser"-Runde, Pair Claude+Codex, 3 Runden, keine offenen Funde):
+> **0** Glob-Regression aus der env-Umstellung gefixt — `run-pytest-shard` expandiert `TEST_PATHS` wieder per Shell
+> (`SELECT=($TEST_PATHS)`, `read -ra` globbt NICHT) + Existenz-Check je Token (`::error::test path '…' existiert nicht`);
+> `_smoke-ci` shardet `tests/fixtures/app/test_*.py` als Dauer-Regressionstest. Fleet-Beweis: footballapp Dispatch 33845042565
+> (Shard `ml` mit `tests/test_features_*.py` grün). **1** Verify beweist den Deploy: `health-check` liest `sha`→`commit`→`version`;
+> recyclage-Caller `staging-version-url` (dev `f70ca87`; Watchtower 190 = 300 s, Budget 40×30 s). rechnungsapp bleibt 200-only
+> (Watchtower 203 = 3600 s, dokumentierter Entscheid Audit 07-10); `prod-version-url` NIRGENDS (Prod-Watchtower 3600 s →
+> falscher Rollback). **2** Dependabot für dieses Repo (`.github/dependabot.yml`, Gruppe `actions`), PR #16 (6 Bumps, alle Minor/
+> Patch, Tag↔SHA je ls-remote geprüft) per Cherry-Pick auf dev `3d7ea24` gebracht (gh-Token ohne `workflow`-Scope kann PR-Merges
+> mit Workflow-Dateien nicht; Dependabot schloss den PR selbst). **3** `release.yml` prüft `RELEASE_TOKEN` vor den Smokes (curl `/user`,
+> Ablauf-Header → Warnung < 14 Tage); `_smoke-ci-v1tag.yml` wöchentlich So 05:00 gegen das echte `@v1`. **4** `gate_matrix.py`
+> deckt die Deploy-Kette (verify-staging/promote-prod/verify-prod, 98304 Fälle) + Struktur von `require-staging-green`; verify-prod
+> verlangt push-Event + `enable-push`. **5** rechnungsapp-Shards = MUSTER (`tests/test_[a-i]*.py` / `[j-z]` / `integration/ routes/` /
+> `services/ pdf/`, 4 Shards ≈ 90 s statt 3 × 61–112 s) + Wächter expandiert Globs, lehnt Tokens ohne Treffer, Doppelabdeckung und
+> doppelte Shard-Namen ab (Codex-Fund). **6** CodeQL nur `schedule`/main/tags (Passthrough `run-codeql`).
+> Werkzeug-Fallen dieser Runde: der Bash-Tool-Wrapper verschluckt Backslashes (jq `\(` → Parse-Fehler, Heredoc-`
+` bricht Python-
+> Anchors) → Python-Edits ohne Backslashes bzw. Write/Edit-Tool; `FETCH_HEAD` ist per Worktree; eine Pipe (`| tail`) verschluckt den
+> Exit-Code des Cherry-Picks — nie als Erfolgsbeleg lesen. `gh run list --commit` braucht die VOLLE SHA.
+> **Fleet-Beweise GEMESSEN 04.09.:** recyclage Run 33845442375 grün, Verify-Staging-Log: Versuch 1–2 `running '8a96e6d' != expected
+> 'f70ca87'`, Versuch 3 `version f70ca87 matches expected f70ca87` (Watchtower-Flip innerhalb ~60 s). footballapp Dispatch
+> 33845042565 grün, ml-Shard-Log listet 8 expandierte `tests/test_features_*.py`. rechnungsapp: erster 4-Shard-Run 33846425564 wurde
+> vom Folge-Push der Parallel-Session gecancelt (alle 4 Shards liefen an, `services` fertig mit 674 passed); Parallel-Session hatte
+> den Rebase-Konflikt zu Gunsten der alten Listen aufgelöst (885950c) → Layout als 8c944c1 erneut angelegt, Session benachrichtigt.
+> Run 33846824179 (8c944c1): alle 4 Muster-Shards grün — backend-a-i 90 s / 613 passed, backend-j-z 88 s / 497, services 60 s / 674,
+> integration 75 s / 265 = 2049 (vorher 3 Shards max 112 s, 2034; +15 = 14 neue Testfunktionen der Fremd-Commits GEMESSEN + 1 ANNAHME),
+> 0 Existenz-Fehler (der eine `::error::test path`-Treffer je Job ist das Skript-Echo). Run insgesamt rot durch `services/health.py:180
+> F401` der Parallel-Session (nicht Teil der Shard-Änderung; deren eigener Run 885950c hat denselben Lint-Fehler).
+>
 > **🤖 2026-09-03 „PERFEKT + AUTONOM"-WELLE (Stufen A–F, Pair Claude+Codex, Reihenfolge B→C→D→E→F→A):**
 > **✅ RELEASED 2026-09-04 AUTONOM (Run 33762903054 Attempt 2 nach Secret `RELEASE_TOKEN`, ls-remote-verifiziert): `@v1` = `v1.11.0` = `61b1928`.**
 > Kandidaten-Branch vom Workflow geloescht. Erster Fleet-Run auf v1.11.0 = rechnungsapp (Caller auf `full-ci-paths` umgestellt).

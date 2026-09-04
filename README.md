@@ -86,7 +86,7 @@ than the caller's** — if the callee requests more, GitHub fails the run at **`
 | Input | Default | Notes |
 |-------|---------|-------|
 | `app-name` | *(required)* | image name defaults to `ghcr.io/adza-group/<app-name>` |
-| `test-shards` | *(required)* | JSON `[{name, paths, markers?, cov?}]` → dynamic test matrix |
+| `test-shards` | *(required)* | JSON `[{name, paths, markers?, cov?}]` → dynamic test matrix. `paths` = space-separated pytest targets; since v1.11.1 `run-pytest-shard` expands shell globs (`tests/test_[a-i]*.py`) and directories itself and fails the shard on a token that matches nothing. `name` must be unique. |
 | `test-env` | `{}` | JSON env for test jobs (put the DB URL here; postgres+redis services are provided) |
 | `coverage-threshold` | `50` | union-coverage gate (blocking) |
 | `install-system-deps` | `false` | tesseract/poppler |
