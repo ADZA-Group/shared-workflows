@@ -824,12 +824,22 @@ jobs:
           # Fail-open (Codex-Design-Runde 2026-09-04): der Trigger beschleunigt den Pull nur; das Gate
           # ist der Versions-Assert im Health-Check darunter (changes-Job erzwingt version-url + Token).
           # Watchtower antwortet erst nach dem Update-Lauf (Pull + Restart) — daher max-time 180.
-          CODE=$(curl -sS -o /tmp/wt.out -w '%{http_code}' --connect-timeout 10 --max-time 180 -X POST \
-            -H "Authorization: Bearer ${WT_TOKEN}" "${WT_URL%/}/v1/update" 2>/tmp/wt.err || true)
+          # Watchtower antwortet erst NACH dem Update-Lauf (Pull + Restart) — bei grossen Images
+          # laenger als jedes sinnvolle Timeout (GEMESSEN rechnungsapp Run 33855783178: 180 s
+          # Timeout, Flip trotzdem bei Versuch 4). Darum nicht warten: kurzer Timeout, curl-Exit 28
+          # (Operation timeout nach erfolgreichem Connect) = ausgeloest, Watchtower arbeitet.
+          # curl rc 28 gilt fuer Connect- UND Operation-Timeout (Codex-Fund): nur mit hergestellter
+          # Verbindung (remote_ip gesetzt) heisst „ausgeloest, Antwort ausstehend".
+          RC=0
+          OUT=$(curl -sS -o /tmp/wt.out -w '%{http_code} %{remote_ip}' --connect-timeout 10 --max-time 20 -X POST \
+            -H "Authorization: Bearer ${WT_TOKEN}" "${WT_URL%/}/v1/update" 2>/tmp/wt.err) || RC=$?
+          CODE=${OUT%% *}; RIP=${OUT#* }; [ "$RIP" = "$OUT" ] && RIP=""
           if [ "${CODE:-000}" = "200" ] || [ "${CODE:-000}" = "204" ]; then
-            echo "watchtower update triggered (HTTP ${CODE})"
+            echo "watchtower update triggered and finished (HTTP ${CODE})"
+          elif [ "$RC" = "28" ] && [ -n "$RIP" ]; then
+            echo "watchtower update triggered (verbunden mit ${RIP}, Antwort nicht abgewartet — Watchtower arbeitet) — der Versions-Poll uebernimmt"
           else
-            echo "::warning::watchtower trigger failed (HTTP ${CODE:-000}) — Polling-Fallback, der Versions-Assert entscheidet"
+            echo "::warning::watchtower trigger failed (curl rc=${RC}, HTTP ${CODE:-000}, remote_ip='${RIP}') — Polling-Fallback, der Versions-Assert entscheidet"
             head -c 300 /tmp/wt.err /tmp/wt.out 2>/dev/null || true
           fi
       - uses: adza-group/shared-workflows/.github/actions/health-check@v1
@@ -901,12 +911,22 @@ jobs:
           WT_TOKEN: ${{ secrets.WATCHTOWER_PROD_TOKEN }}
         run: |
           # Fail-open wie in verify-staging: Gate ist der Versions-Assert (prod-version-url Pflicht).
-          CODE=$(curl -sS -o /tmp/wt.out -w '%{http_code}' --connect-timeout 10 --max-time 180 -X POST \
-            -H "Authorization: Bearer ${WT_TOKEN}" "${WT_URL%/}/v1/update" 2>/tmp/wt.err || true)
+          # Watchtower antwortet erst NACH dem Update-Lauf (Pull + Restart) — bei grossen Images
+          # laenger als jedes sinnvolle Timeout (GEMESSEN rechnungsapp Run 33855783178: 180 s
+          # Timeout, Flip trotzdem bei Versuch 4). Darum nicht warten: kurzer Timeout, curl-Exit 28
+          # (Operation timeout nach erfolgreichem Connect) = ausgeloest, Watchtower arbeitet.
+          # curl rc 28 gilt fuer Connect- UND Operation-Timeout (Codex-Fund): nur mit hergestellter
+          # Verbindung (remote_ip gesetzt) heisst „ausgeloest, Antwort ausstehend".
+          RC=0
+          OUT=$(curl -sS -o /tmp/wt.out -w '%{http_code} %{remote_ip}' --connect-timeout 10 --max-time 20 -X POST \
+            -H "Authorization: Bearer ${WT_TOKEN}" "${WT_URL%/}/v1/update" 2>/tmp/wt.err) || RC=$?
+          CODE=${OUT%% *}; RIP=${OUT#* }; [ "$RIP" = "$OUT" ] && RIP=""
           if [ "${CODE:-000}" = "200" ] || [ "${CODE:-000}" = "204" ]; then
-            echo "watchtower update triggered (HTTP ${CODE})"
+            echo "watchtower update triggered and finished (HTTP ${CODE})"
+          elif [ "$RC" = "28" ] && [ -n "$RIP" ]; then
+            echo "watchtower update triggered (verbunden mit ${RIP}, Antwort nicht abgewartet — Watchtower arbeitet) — der Versions-Poll uebernimmt"
           else
-            echo "::warning::watchtower trigger failed (HTTP ${CODE:-000}) — Polling-Fallback, der Versions-Assert entscheidet"
+            echo "::warning::watchtower trigger failed (curl rc=${RC}, HTTP ${CODE:-000}, remote_ip='${RIP}') — Polling-Fallback, der Versions-Assert entscheidet"
             head -c 300 /tmp/wt.err /tmp/wt.out 2>/dev/null || true
           fi
       - uses: adza-group/shared-workflows/.github/actions/health-check@v1
