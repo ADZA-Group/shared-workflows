@@ -1,0 +1,52 @@
+# ═══════════════════════════════════════════════════════════════
+# DEPRECATED no-op stub (2026-09-04, v1.12.1)
+#
+# Das Monitoring-Dashboard wurde in v1.12.0 entfernt (kein Konsument, Jarvis-CI-Cockpit
+# uebernimmt). Ein floating @v1 darf bestehende Caller aber nicht brechen: recyclage-app
+# ruft dieses Workflow auf main noch woechentlich auf (Cron Mi 07:13) — ohne diese Datei
+# endete der Lauf in startup_failure. Der Stub deklariert den alten Vertrag, tut nichts
+# und meldet die Deprecation. Entfernen erst mit v2 (scripts/check_callers.py = 0 Treffer).
+# ═══════════════════════════════════════════════════════════════
+
+name: "📊 Monitoring Dashboard (deprecated no-op)"
+
+on:
+  workflow_call:
+    inputs:
+      app-name:
+        required: false
+        type: string
+        default: ""
+      app-url:
+        required: false
+        type: string
+        default: ""
+      workflow-name:
+        required: false
+        type: string
+        default: "CI/CD"
+      days:
+        required: false
+        type: number
+        default: 7
+      runner-label:
+        required: false
+        type: string
+        default: '["self-hosted", "linux", "proxmox"]'
+
+permissions:
+  contents: read
+
+jobs:
+  deprecated:
+    name: "📊 deprecated no-op"
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 2
+    steps:
+      - name: Deprecation notice
+        env:
+          APP: ${{ inputs.app-name }}
+        run: |
+          echo "::warning::reusable-monitoring-dashboard.yml ist seit v1.12.0 entfernt (No-op-Stub seit v1.12.1). Caller-Workflow in ${APP:-diesem Repo} loeschen — Jarvis' CI-Cockpit ist der Beobachter."
+          echo "## 📊 Monitoring Dashboard — deprecated" >> "$GITHUB_STEP_SUMMARY"
+          echo "Kein Inhalt mehr. Caller-Workflow loeschen (auf dev bereits geschehen)." >> "$GITHUB_STEP_SUMMARY"

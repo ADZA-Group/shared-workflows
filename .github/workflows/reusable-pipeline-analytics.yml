@@ -1,0 +1,47 @@
+# ═══════════════════════════════════════════════════════════════
+# DEPRECATED no-op stub (2026-09-04, v1.12.1)
+#
+# Pipeline-Analytics wurde in v1.12.0 entfernt (TIA/Flake-Ledger weg, Jarvis-CI-Cockpit
+# uebernimmt). recyclage-app ruft dieses Workflow auf main noch woechentlich auf (Cron
+# Do 07:17) — ohne diese Datei endete der Lauf in startup_failure. Der Stub deklariert den
+# alten Vertrag, tut nichts und meldet die Deprecation. Entfernen erst mit v2.
+# ═══════════════════════════════════════════════════════════════
+
+name: "📊 Pipeline Analytics (deprecated no-op)"
+
+on:
+  workflow_call:
+    inputs:
+      app-name:
+        required: false
+        type: string
+        default: ""
+      workflow-name:
+        required: false
+        type: string
+        default: "CI/CD"
+      days:
+        required: false
+        type: number
+        default: 7
+      runner-label:
+        required: false
+        type: string
+        default: '["self-hosted", "linux", "proxmox"]'
+
+permissions:
+  contents: read
+
+jobs:
+  deprecated:
+    name: "📊 deprecated no-op"
+    runs-on: ${{ fromJSON(inputs.runner-label) }}
+    timeout-minutes: 2
+    steps:
+      - name: Deprecation notice
+        env:
+          APP: ${{ inputs.app-name }}
+        run: |
+          echo "::warning::reusable-pipeline-analytics.yml ist seit v1.12.0 entfernt (No-op-Stub seit v1.12.1). Caller-Workflow in ${APP:-diesem Repo} loeschen — Jarvis' CI-Cockpit ist der Beobachter."
+          echo "## 📊 Pipeline Analytics — deprecated" >> "$GITHUB_STEP_SUMMARY"
+          echo "Kein Inhalt mehr. Caller-Workflow loeschen (auf dev bereits geschehen)." >> "$GITHUB_STEP_SUMMARY"

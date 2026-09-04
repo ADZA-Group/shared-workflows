@@ -259,8 +259,13 @@ jobs:
             fi
             echo "::error::crane digest ${IMAGE_NAME}:${FROM} failed — Backup unklar, Push geblockt"; cat /tmp/crane.err; exit 1
           fi
-          crane tag "${IMAGE_NAME}@${SRC}" "${TO}"
-          DST=$(crane digest "${IMAGE_NAME}:${TO}")
+          # Transiente Registry-Fehler (GEMESSEN footballapp Run 33857324195, 04.09.: GET per Digest
+          # 2 h nach dem Push einmalig MANIFEST_UNKNOWN, 23 min spaeter 200 — Diagnose-Run 33860231459)
+          # blocken nicht sofort: 3 Versuche, 10 s Abstand. Der Digest kam gerade per HEAD — ein 404
+          # hier ist kein Erst-Push, sondern ein Wackler; nach 3 Fehlversuchen bleibt der Push geblockt.
+          retry() { local n=$1 d=$2 i; shift 2; for i in $(seq 1 "$n"); do "$@" && return 0; [ "$i" -lt "$n" ] && { echo "::warning::$* fehlgeschlagen (Versuch $i/$n) — Retry in ${d}s" >&2; sleep "$d"; }; done; return 1; }
+          retry 3 10 crane tag "${IMAGE_NAME}@${SRC}" "${TO}"
+          DST=$(retry 3 10 crane digest "${IMAGE_NAME}:${TO}")
           [ "$DST" = "$SRC" ] || { echo "::error::backup :${TO} resolved to ${DST}, expected ${SRC}"; exit 1; }
           echo "::notice::backed up :${FROM} -> :${TO} (${SRC})"
 
@@ -274,8 +279,13 @@ jobs:
             fi
             echo "::error::crane digest ${IMAGE_NAME}:${FROM} failed — Backup unklar, Push geblockt"; cat /tmp/crane.err; exit 1
           fi
-          crane tag "${IMAGE_NAME}@${SRC}" "${TO}"
-          DST=$(crane digest "${IMAGE_NAME}:${TO}")
+          # Transiente Registry-Fehler (GEMESSEN footballapp Run 33857324195, 04.09.: GET per Digest
+          # 2 h nach dem Push einmalig MANIFEST_UNKNOWN, 23 min spaeter 200 — Diagnose-Run 33860231459)
+          # blocken nicht sofort: 3 Versuche, 10 s Abstand. Der Digest kam gerade per HEAD — ein 404
+          # hier ist kein Erst-Push, sondern ein Wackler; nach 3 Fehlversuchen bleibt der Push geblockt.
+          retry() { local n=$1 d=$2 i; shift 2; for i in $(seq 1 "$n"); do "$@" && return 0; [ "$i" -lt "$n" ] && { echo "::warning::$* fehlgeschlagen (Versuch $i/$n) — Retry in ${d}s" >&2; sleep "$d"; }; done; return 1; }
+          retry 3 10 crane tag "${IMAGE_NAME}@${SRC}" "${TO}"
+          DST=$(retry 3 10 crane digest "${IMAGE_NAME}:${TO}")
           [ "$DST" = "$SRC" ] || { echo "::error::backup :${TO} resolved to ${DST}, expected ${SRC}"; exit 1; }
           echo "::notice::backed up :${FROM} -> :${TO} (${SRC})"
 
@@ -311,7 +321,8 @@ jobs:
           DIGEST=$(push_tag "$VERIFY")
           [ -n "$DIGEST" ] || { echo "::error::no digest in push output for $VERIFY"; exit 1; }
           # Gegenprobe: Registry loest den Digest auf (das ist, was Watchtower ziehen wird).
-          [ "$(crane digest "${IMAGE_NAME}@${DIGEST}")" = "$DIGEST" ] || { echo "::error::pushed digest ${DIGEST} not resolvable in registry"; exit 1; }
+          retry() { local n=$1 d=$2 i; shift 2; for i in $(seq 1 "$n"); do "$@" && return 0; [ "$i" -lt "$n" ] && { echo "::warning::$* fehlgeschlagen (Versuch $i/$n) — Retry in ${d}s" >&2; sleep "$d"; }; done; return 1; }
+          [ "$(retry 3 10 crane digest "${IMAGE_NAME}@${DIGEST}")" = "$DIGEST" ] || { echo "::error::pushed digest ${DIGEST} not resolvable in registry"; exit 1; }
           # Reihenfolge (Codex-Fund R2-E1): erst alle NICHT deployenden Tags, der Deploy-Tag
           # (:staging / :latest) als letzte mutierende Operation. Alle harten Pruefungen
           # liegen davor; was bleibt, ist die Registry-Grundunsicherheit

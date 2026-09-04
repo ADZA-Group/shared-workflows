@@ -29,7 +29,8 @@ Removed 2026-09-04 (no caller, no consumer): multi-arch builds, gated promotion,
 e2e, load-test, mutation, pipeline-analytics, monitoring-dashboard, notify webhooks
 (Discord/Slack/Telegram), telemetry, TIA/flake ledger, OPA + Trivy-fs + dependency-review in
 the per-push security scan, Grype in the weekly sweep. Jarvis' CI cockpit and GitHub itself
-are the observers now.
+are the observers now. `reusable-pipeline-analytics.yml` and `reusable-monitoring-dashboard.yml`
+exist again as deprecated no-op stubs since v1.12.1 (callers on `main` still schedule them).
 
 ## Composite Actions
 
@@ -136,9 +137,12 @@ this table and `reusable-ci.yml` drift apart.
 | `prod-watchtower-url` | `""` | like `staging-watchtower-url` for prod (secret `WATCHTOWER_PROD_TOKEN`, `prod-version-url` required) |
 | `enable-dast` | `false` | ZAP baseline against `staging-url` after verify-staging |
 | `dast-blocking` | `false` | DAST job goes red on FAIL-level alerts instead of advisory. Not a deploy gate |
+| `enable-ghcr-prune` / `enable-load-test` / `multi-arch` / `enable-mutation` / `cloud-runner-label` | — | **Deprecated no-ops** (removed in v1.12.0, re-declared in v1.12.1): a floating `@v1` must never break an existing caller — the removal put callers on `main` into `startup_failure` without a job or log. Values are ignored; a truthy value only yields a warning from the changes job. Removal = v2, once `scripts/check_callers.py` reports zero uses fleet-wide (dev **and** main) |
 
 Secrets (all optional): `WATCHTOWER_STAGING_TOKEN`, `WATCHTOWER_PROD_TOKEN` — map them explicitly in
-the caller's `secrets:` block (or use `secrets: inherit`).
+the caller's `secrets:` block (or use `secrets: inherit`). `DISCORD_WEBHOOK`, `SLACK_WEBHOOK`,
+`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` are deprecated no-ops (notify webhooks removed in v1.12.0,
+still declared so old callers do not fail at startup).
 
 ## Config-only repos (paperless, cloudflare)
 
@@ -228,8 +232,13 @@ gh attestation verify oci://ghcr.io/adza-group/<app>:<tag> --repo ADZA-Group/<ap
   `.release-hold` file exists (`touch .release-hold` = emergency stop). Version: minor when a `feat`
   commit landed since `@v1`, otherwise patch. Manual release any time:
   `scripts/release-v1.sh <sha> vX.Y.Z --yes`.
-- **Fleet callers** pin `@v1`; removing an input from the orchestrator requires removing it from every
-  caller *before* the release (unknown inputs are a `startup_failure`).
+- **Fleet callers** pin `@v1`, so the orchestrator's contract is a floating major: **never remove an
+  input or secret** (unknown ones are a `startup_failure` without a job or log — incident 2026-09-04,
+  rechnungsapp run 33858079440). Deprecate as a declared no-op with a warning instead; delete only in
+  v2. `python scripts/check_callers.py` (needs `gh`) compares every fleet caller on dev **and** main
+  against the local reusables — run it before any release that touches inputs.
+- **`workflow_dispatch`** is the manual full run: all lanes are forced like on a main push (the path
+  filter would otherwise see an empty diff on a repo whose main equals dev), images are never pushed.
 - **Dependabot** PRs in the app repos are merged nightly by Jarvis (`routines/code-watch.md`) when the
   run for the exact head SHA is green; in this repo they are cherry-picked onto dev (the gh token
   lacks the `workflow` scope for API merges of workflow files).

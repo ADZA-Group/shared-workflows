@@ -195,10 +195,50 @@ on:
     # named statt `secrets: inherit` übergeben können → ihr cross-repo
     # RUNNER_SWITCH_PAT leakt dann nicht mehr in diese Reusable + Sub-Reusables.
     # required:false → bestehende inherit-Caller (Smoke/Alt) laufen unverändert. (Audit P2)
+      # ── Deprecated No-ops (v1.12.0 hatte sie entfernt, v1.12.1 deklariert sie wieder) ───────────
+      # Ein floating @v1 verspricht, dass bestehende Caller weiterlaufen. Das Entfernen brach Caller
+      # auf main-Branches ohne Job und ohne Log (GEMESSEN rechnungsapp Run 33858079440: startup_failure).
+      # Werte werden ignoriert; der changes-Job warnt, wenn einer gesetzt ist. Entfernen erst mit v2,
+      # wenn `python scripts/check_callers.py` fleetweit (dev UND main) 0 Treffer meldet.
+      enable-ghcr-prune:
+        required: false
+        type: boolean
+        default: false
+        description: "DEPRECATED no-op seit v1.12.1 (ghcr-prune entfernt) — aus dem Caller streichen"
+      enable-load-test:
+        required: false
+        type: boolean
+        default: false
+        description: "DEPRECATED no-op seit v1.12.1 (load-test entfernt) — aus dem Caller streichen"
+      multi-arch:
+        required: false
+        type: boolean
+        default: false
+        description: "DEPRECATED no-op seit v1.12.1 (multi-arch entfernt) — aus dem Caller streichen"
+      enable-mutation:
+        required: false
+        type: boolean
+        default: false
+        description: "DEPRECATED no-op seit v1.12.1 (mutation entfernt) — aus dem Caller streichen"
+      cloud-runner-label:
+        required: false
+        type: string
+        default: ""
+        description: "DEPRECATED no-op seit v1.12.1 (alle Jobs laufen auf runner-label) — aus dem Caller streichen"
     secrets:
       WATCHTOWER_STAGING_TOKEN:
         required: false
       WATCHTOWER_PROD_TOKEN:
+        required: false
+      # Deprecated (Notify-Webhooks in v1.12.0 entfernt): deklariert, damit Caller mit explizitem
+      # Mapping nicht in startup_failure laufen; werden nirgends gelesen.
+      DISCORD_WEBHOOK:
+        required: false
+      SLACK_WEBHOOK:
+        required: false
+      TELEGRAM_BOT_TOKEN:
+        required: false
+      TELEGRAM_CHAT_ID:
         required: false
 permissions:
   contents: read
@@ -305,6 +345,9 @@ jobs:
           F_FULLCI: ${{ steps.filter.outputs.fullci }}
           MAIN_PUSH: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
           IS_SCHEDULE: ${{ github.event_name == 'schedule' }}
+          IS_DISPATCH: ${{ github.event_name == 'workflow_dispatch' }}
+          DEPRECATED_INPUTS: "${{ inputs.enable-ghcr-prune && 'enable-ghcr-prune ' || '' }}${{ inputs.enable-load-test && 'enable-load-test ' || '' }}${{ inputs.multi-arch && 'multi-arch ' || '' }}${{ inputs.enable-mutation && 'enable-mutation ' || '' }}${{ inputs.cloud-runner-label != '' && 'cloud-runner-label ' || '' }}"
+          DEPRECATED_SECRETS: "${{ secrets.DISCORD_WEBHOOK != '' && 'DISCORD_WEBHOOK ' || '' }}${{ secrets.SLACK_WEBHOOK != '' && 'SLACK_WEBHOOK ' || '' }}${{ secrets.TELEGRAM_BOT_TOKEN != '' && 'TELEGRAM_BOT_TOKEN ' || '' }}${{ secrets.TELEGRAM_CHAT_ID != '' && 'TELEGRAM_CHAT_ID ' || '' }}"
           LIGHT_CAND: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') && !inputs.full-ci-on-dev-push }}
           BLOCKING_SCANNERS: ${{ inputs.security-blocking-scanners }}
           WT_STAGING_URL: ${{ inputs.staging-watchtower-url }}
@@ -325,6 +368,11 @@ jobs:
           # aber KEINE Gate-Haertung und Diaet unveraendert — das ist der Unterschied zu risky.
           if [ "$FULLCI" = "true" ]; then PY=true; DK=true; FR=true; fi
           if [ "$MAIN_PUSH" = "true" ]; then PY=true; DK=true; FR=true; CI=true; fi
+          # workflow_dispatch = manueller Voll-Lauf (2026-09-04): der Pfadfilter vergleicht bei Dispatch
+          # gegen den Default-Branch — auf einem Repo mit main == dev war der Diff leer und 16/17 Jobs
+          # skipped (GEMESSEN MitarbeiterApp Run 33859988531). Dispatch erzwingt jetzt wie ein main-Push
+          # alle Lanes; risky bleibt filtergesteuert, die Diaet greift bei Dispatch ohnehin nicht.
+          if [ "$IS_DISPATCH" = "true" ]; then PY=true; DK=true; FR=true; CI=true; fi
           # Risky ⇒ volle Code-Lanes (PY/DK/FR): risky schaltete bisher nur die Diät aus
           # und machte Gates blocking — test-matrix/docker-build blieben filtergesteuert.
           # Ein risky-Push, der keinen Code-Filter trifft (z.B. Template-only via Caller-
@@ -361,6 +409,7 @@ jobs:
             esac
           done
           [ -n "$BS" ] && echo "::notice::🔒 Opt-in blocking scanners: $BS (blocken auf main/tags und bei risky)"
+          [ -z "${DEPRECATED_INPUTS}${DEPRECATED_SECRETS}" ] || echo "::warning::Caller uebergibt entfernte Inputs/Secrets (seit v1.12.1 No-op): ${DEPRECATED_INPUTS}${DEPRECATED_SECRETS}— Caller bereinigen (python scripts/check_callers.py)"
           {
             echo "python=$PY"; echo "docker=$DK"; echo "frontend=$FR"; echo "ci=$CI"
             echo "any_code=$ANY"; echo "risky=$RISKY"; echo "fullci=$FULLCI"; echo "light=$LIGHT"

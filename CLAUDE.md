@@ -7,6 +7,35 @@
 > Fleet-Beweis: rechnungsapp Run 33750934660 (Attempt 2 grün; Attempt 1 fiel im ALTEN zweiten buildx-Push an
 > „failed to fetch anonymous token … ghcr.io/token … 403" — genau der Schritt, den die Audit-Welle unten abschafft).
 >
+> **🩹 2026-09-04 SPÄTNACHMITTAG — v1.12.0-Nachwehen, Fix-forward auf dev (Pair Claude+Codex):**
+> **Vorfall 1 — Vertragsbruch des floating @v1 (GEMESSEN):** v1.12.0 entfernte 20 Inputs + 4 Secrets; der rechnungsapp-Caller
+> uebergab noch `enable-ghcr-prune` ⇒ Dispatch 33858079440 und Push 33859136231 (Parallel-Session, sogar auf main = Promotion
+> stillschweigend gescheitert) endeten in `startup_failure` OHNE Job und OHNE Log. Caller-Fix dev `1d44bce`, Beweis-Run
+> 33859420062 gruen (Trigger nicht-wartend „verbunden mit 192.168.1.203", Versions-Match Versuch 1 statt 4). Das neue
+> `scripts/check_callers.py` (alle 8 Fleet-Repos, dev UND main, `with:`/`secrets:` gegen die lokalen Reusables) fand danach
+> 7 weitere Brueche auf den MAIN-Branches: recyclage (`multi-arch`, `enable-load-test`, 4 Webhook-Secrets, dashboard.yml Mi 07:13
+> + pipeline-analytics.yml Do 07:17 auf geloeschte Reusables) und footballapp (`cloud-runner-label`, `enable-mutation`, Webhook-
+> Secrets) — beide Default-Branch main ⇒ Nightlies/Crons waeren rot geworden. **Regel ab jetzt: Inputs/Secrets auf @v1 NIE
+> entfernen, nur als deklarierte No-ops deprecaten** (5 Inputs + 4 Secrets wieder drin, `::warning::` im changes-Job, Stubs
+> `reusable-monitoring-dashboard.yml` + `reusable-pipeline-analytics.yml`); Entfernen = v2, wenn `check_callers` fleetweit 0
+> meldet. Bewusst KEIN dev→main-Merge in recyclage/footballapp nur wegen CI-Dateien (waere ein blinder Prod-Deploy von
+> Dependency-Majors, u.a. redis 5→8).
+> **Vorfall 2 — transienter GHCR-Fehler (GEMESSEN):** footballapp Push-Run 33857324195 rot im Step „Backup :staging →
+> :staging-previous": `crane tag IMAGE@sha256:4c688f7f…` bekam `GET …/manifests/sha256:4c688f7f…: MANIFEST_UNKNOWN`, 2 h nach
+> dem Push dieses Digests. Diagnose-Run 33860231459 (Wegwerf-Branch `diag/ghcr-staging`, read-only, danach geloescht) 23 min
+> spaeter: HEAD + GET per Tag UND per Digest 200 (schema2, 2834 Bytes), auch ohne Accept-Header; Paket hat genau EINE Version
+> (1208220254) fuer den Digest mit Tags dev-e6de329/verify-dev/dev/staging; kein Prune lief (Job skipped). Fix: `retry 3 10`
+> um `crane tag`/`crane digest` in beiden Backups und der Push-Gegenprobe — kein „Heilen" eines haengenden Tags (es haengt nicht).
+> Diagnose-Weg merken: eigener Token hat kein `read:packages` (403 auf Tag-HEADs, Versions-API) ⇒ Probe als Wegwerf-Workflow im
+> App-Repo mit `GITHUB_TOKEN` (packages: read) laufen lassen.
+> **Vorfall 3 — Uebergangsfenster Caller-Cleanup vor Release (GEMESSEN):** MitarbeiterApp-Runs 33857401138/33857724704/
+> 33857727247 hingen (queued/pending): der bereinigte Caller ohne `cloud-runner-label` traf noch v1.11.4, dessen changes-Job
+> `cloud-runner-label` (Default self-hosted) nutzte — User-Repo ohne Org-Runner. Force-cancel; Dispatch 33859988531 auf v1.12.0:
+> changes auf ubuntu-latest, aber 16/17 Jobs skipped (Pfadfilter gegen Default-Branch, main == dev) ⇒ **workflow_dispatch
+> erzwingt jetzt alle Lanes** wie ein main-Push (Bilder werden bei Dispatch nie gepusht).
+> **Fleet-Beweise v1.12.0 GEMESSEN:** recyclage Dispatch 33858092708 gruen, footballapp Dispatch 33858105738 gruen (Backup/Push
+> bei Dispatch skipped — beweist den Retry-Pfad also NICHT), rechnungsapp Push 33859420062 gruen (s.o.), recyclage Push
+> 33857245210 (Trigger HTTP 200, Match Versuch 1). Release v1.12.1: siehe naechsten Block, sobald durch.
 > **✅ RELEASED 2026-09-04 NACHMITTAGS AUTONOM (Run 33857838387, Kandidat aus dev `2339958`, ls-remote-verifiziert): `@v1` = `v1.12.0` = `2339958`** — Entrümpelung + Trigger-Fix + Weekly-Release + Doku-Gate (Details im Block darunter). Erster Anlauf scheiterte an Gate 1 des Skripts (dirty tree = uncommittete Doku), Doku committet (69b494c), Release aus dem gate-gruenen SHA.
 > **🏗️ 2026-09-04 NACHMITTAGS — „Watchtower-Trigger + Entrümpelung + Autonomie" (Azad: „mach alle erwähnten Punkte sauber fertig,
 > CI autonom wie es für uns gut ist"; Plan `docs/superpowers/plans/2026-09-04-ci-entruempelung-deploy-trigger.md`; Pair: Design-Runde
