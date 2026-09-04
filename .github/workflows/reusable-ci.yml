@@ -195,6 +195,16 @@ on:
         type: boolean
         default: false
         description: "Opt-in (2026-09-04): DAST-Job wird bei FAIL-Alerts rot statt advisory. Kein Deploy-Gate (laeuft nach verify-staging), aber ehrliches Signal statt Luegen-Gruen."
+      staging-watchtower-url:
+        required: false
+        type: string
+        default: ""
+        description: "Deterministischer Deploy (2026-09-04): Basis-URL der Watchtower-HTTP-API auf dem Staging-Host, z.B. http://192.168.1.203:8080. verify-staging stoesst POST /v1/update an, bevor es pollt. Pflicht dazu: Secret WATCHTOWER_STAGING_TOKEN + staging-version-url (sonst bricht der changes-Job ab). Trigger-Fehler = Warning; das Gate bleibt der Versions-Assert."
+      prod-watchtower-url:
+        required: false
+        type: string
+        default: ""
+        description: "Wie staging-watchtower-url fuer Prod (Pflicht: Secret WATCHTOWER_PROD_TOKEN + prod-version-url)."
       security-blocking-scanners:
         required: false
         type: string
@@ -295,6 +305,10 @@ on:
     # RUNNER_SWITCH_PAT leakt dann nicht mehr in diese Reusable + Sub-Reusables.
     # required:false → bestehende inherit-Caller (Smoke/Alt) laufen unverändert. (Audit P2)
     secrets:
+      WATCHTOWER_STAGING_TOKEN:
+        required: false
+      WATCHTOWER_PROD_TOKEN:
+        required: false
       DISCORD_WEBHOOK:
         required: false
       SLACK_WEBHOOK:
@@ -410,6 +424,12 @@ jobs:
           MAIN_PUSH: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
           LIGHT_CAND: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') && !inputs.full-ci-on-dev-push }}
           BLOCKING_SCANNERS: ${{ inputs.security-blocking-scanners }}
+          WT_STAGING_URL: ${{ inputs.staging-watchtower-url }}
+          WT_PROD_URL: ${{ inputs.prod-watchtower-url }}
+          SV_URL: ${{ inputs.staging-version-url }}
+          PV_URL: ${{ inputs.prod-version-url }}
+          WT_STAGING_TOKEN_SET: ${{ secrets.WATCHTOWER_STAGING_TOKEN != '' }}
+          WT_PROD_TOKEN_SET: ${{ secrets.WATCHTOWER_PROD_TOKEN != '' }}
         run: |
           if [ "$F_OUTCOME" != "success" ]; then
             echo "::warning::paths-filter fehlgeschlagen — fail-closed: alle Kategorien + risky = true (volle harte CI)"
@@ -432,6 +452,17 @@ jobs:
           LIGHT=false
           if [ "$LIGHT_CAND" = "true" ] && [ "$RISKY" != "true" ]; then LIGHT=true; fi
           [ "$RISKY" = "true" ] && echo "::notice::⚠️ risky-Pfad berührt — CI-Diät aus, harte Gates aktiv (property/hadolint/bandit blocking)"
+          # Deterministischer Deploy (2026-09-04, Codex-Design-Fund): ein Watchtower-Trigger ohne
+          # Versions-Assert waere kein Deploy-Beweis, ohne Token kein Trigger — beides ist ein
+          # Konfigurationsfehler des Callers und bricht hier fail-fast ab, nicht erst im Verify.
+          if [ -n "${WT_STAGING_URL:-}" ]; then
+            [ -n "${SV_URL:-}" ] || { echo "::error::staging-watchtower-url gesetzt, aber staging-version-url leer — der Versions-Assert ist das Gate"; exit 1; }
+            [ "${WT_STAGING_TOKEN_SET:-false}" = "true" ] || { echo "::error::staging-watchtower-url gesetzt, aber Secret WATCHTOWER_STAGING_TOKEN fehlt (Caller: secrets-Mapping)"; exit 1; }
+          fi
+          if [ -n "${WT_PROD_URL:-}" ]; then
+            [ -n "${PV_URL:-}" ] || { echo "::error::prod-watchtower-url gesetzt, aber prod-version-url leer — der Versions-Assert ist das Gate"; exit 1; }
+            [ "${WT_PROD_TOKEN_SET:-false}" = "true" ] || { echo "::error::prod-watchtower-url gesetzt, aber Secret WATCHTOWER_PROD_TOKEN fehlt (Caller: secrets-Mapping)"; exit 1; }
+          fi
           # Opt-in Dual-Gate (2026-09-04): Scanner-Liste normalisieren (Leerzeichen raus) und
           # fail-fast validieren — ein Tippfehler bliebe sonst still advisory.
           BS=$(printf '%s' "${BLOCKING_SCANNERS:-}" | tr -d '[:space:]')
@@ -1305,6 +1336,23 @@ jobs:
           echo "${CRANE_SHA256}  $RUNNER_TEMP/crane.tgz" | sha256sum -c --quiet - || { echo "::error::crane checksum mismatch"; exit 1; }
           mkdir -p "$RUNNER_TEMP/crane-bin" && tar xz -C "$RUNNER_TEMP/crane-bin" -f "$RUNNER_TEMP/crane.tgz" crane
           echo "$RUNNER_TEMP/crane-bin" >> "$GITHUB_PATH"
+      - name: Trigger Watchtower (HTTP API, deterministischer Deploy)
+        if: ${{ inputs.staging-watchtower-url != '' }}
+        env:
+          WT_URL: ${{ inputs.staging-watchtower-url }}
+          WT_TOKEN: ${{ secrets.WATCHTOWER_STAGING_TOKEN }}
+        run: |
+          # Fail-open (Codex-Design-Runde 2026-09-04): der Trigger beschleunigt den Pull nur; das Gate
+          # ist der Versions-Assert im Health-Check darunter (changes-Job erzwingt version-url + Token).
+          # Watchtower antwortet erst nach dem Update-Lauf (Pull + Restart) — daher max-time 180.
+          CODE=$(curl -sS -o /tmp/wt.out -w '%{http_code}' --connect-timeout 10 --max-time 180 -X POST \
+            -H "Authorization: Bearer ${WT_TOKEN}" "${WT_URL%/}/v1/update" 2>/tmp/wt.err || true)
+          if [ "${CODE:-000}" = "200" ] || [ "${CODE:-000}" = "204" ]; then
+            echo "watchtower update triggered (HTTP ${CODE})"
+          else
+            echo "::warning::watchtower trigger failed (HTTP ${CODE:-000}) — Polling-Fallback, der Versions-Assert entscheidet"
+            head -c 300 /tmp/wt.err /tmp/wt.out 2>/dev/null || true
+          fi
       - uses: adza-group/shared-workflows/.github/actions/health-check@v1
         id: staging-check
         continue-on-error: true
@@ -1458,6 +1506,21 @@ jobs:
           echo "${CRANE_SHA256}  $RUNNER_TEMP/crane.tgz" | sha256sum -c --quiet - || { echo "::error::crane checksum mismatch"; exit 1; }
           mkdir -p "$RUNNER_TEMP/crane-bin" && tar xz -C "$RUNNER_TEMP/crane-bin" -f "$RUNNER_TEMP/crane.tgz" crane
           echo "$RUNNER_TEMP/crane-bin" >> "$GITHUB_PATH"
+      - name: Trigger Watchtower (HTTP API, deterministischer Deploy)
+        if: ${{ inputs.prod-watchtower-url != '' }}
+        env:
+          WT_URL: ${{ inputs.prod-watchtower-url }}
+          WT_TOKEN: ${{ secrets.WATCHTOWER_PROD_TOKEN }}
+        run: |
+          # Fail-open wie in verify-staging: Gate ist der Versions-Assert (prod-version-url Pflicht).
+          CODE=$(curl -sS -o /tmp/wt.out -w '%{http_code}' --connect-timeout 10 --max-time 180 -X POST \
+            -H "Authorization: Bearer ${WT_TOKEN}" "${WT_URL%/}/v1/update" 2>/tmp/wt.err || true)
+          if [ "${CODE:-000}" = "200" ] || [ "${CODE:-000}" = "204" ]; then
+            echo "watchtower update triggered (HTTP ${CODE})"
+          else
+            echo "::warning::watchtower trigger failed (HTTP ${CODE:-000}) — Polling-Fallback, der Versions-Assert entscheidet"
+            head -c 300 /tmp/wt.err /tmp/wt.out 2>/dev/null || true
+          fi
       - uses: adza-group/shared-workflows/.github/actions/health-check@v1
         id: prod-check
         continue-on-error: true

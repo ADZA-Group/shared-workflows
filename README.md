@@ -94,6 +94,7 @@ than the caller's** — if the callee requests more, GitHub fails the run at **`
 | `enable-push` | `true` | GHCR push on `push` events (false for build-only) |
 | `security-blocking-scanners` | `""` | Opt-in dual-gate per app (2026-09-04), comma-separated from `semgrep,trivy-fs,pip-audit`: the named scanners block on main/tags and on risky pushes (`force-blocking`), stay advisory on PR/dev. Unknown names fail the `changes` job. Trivy config/IaC stays advisory. |
 | `dast-blocking` | `false` | Opt-in: DAST job goes red on FAIL-level alerts instead of advisory. Not a deploy gate (runs after verify-staging). |
+| `staging-watchtower-url` / `prod-watchtower-url` | `""` | Deterministic deploy (2026-09-04): base URL of the Watchtower HTTP API on the host (`http://192.168.1.203:8080`). verify-* POSTs `/v1/update` before polling, so the flip no longer waits for the poll interval. Requires the secret `WATCHTOWER_STAGING_TOKEN` / `WATCHTOWER_PROD_TOKEN` and `staging-version-url` / `prod-version-url` (the `changes` job fails fast otherwise). A failed trigger is a warning; the version assert stays the gate. |
 | `deploy-*` / verify | *(Phase 3b)* | deploy/verify tail not yet wired in the core orchestrator |
 
 ## Config-only repos (paperless, cloudflare)
