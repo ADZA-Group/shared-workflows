@@ -7,6 +7,7 @@
 > Fleet-Beweis: rechnungsapp Run 33750934660 (Attempt 2 grün; Attempt 1 fiel im ALTEN zweiten buildx-Push an
 > „failed to fetch anonymous token … ghcr.io/token … 403" — genau der Schritt, den die Audit-Welle unten abschafft).
 >
+> **✅ RELEASED 2026-09-04 NACHMITTAGS AUTONOM (Run 33857838387, Kandidat aus dev `2339958`, ls-remote-verifiziert): `@v1` = `v1.12.0` = `2339958`** — Entrümpelung + Trigger-Fix + Weekly-Release + Doku-Gate (Details im Block darunter). Erster Anlauf scheiterte an Gate 1 des Skripts (dirty tree = uncommittete Doku), Doku committet (69b494c), Release aus dem gate-gruenen SHA.
 > **🏗️ 2026-09-04 NACHMITTAGS — „Watchtower-Trigger + Entrümpelung + Autonomie" (Azad: „mach alle erwähnten Punkte sauber fertig,
 > CI autonom wie es für uns gut ist"; Plan `docs/superpowers/plans/2026-09-04-ci-entruempelung-deploy-trigger.md`; Pair: Design-Runde
 > 3 Funde, Etappe A 1 Runde, Etappe B 2 Runden 3 Funde, Trigger-Nachtrag 1 Fund — alle umgesetzt):**
