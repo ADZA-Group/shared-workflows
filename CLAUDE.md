@@ -7,6 +7,21 @@
 > Fleet-Beweis: rechnungsapp Run 33750934660 (Attempt 2 grün; Attempt 1 fiel im ALTEN zweiten buildx-Push an
 > „failed to fetch anonymous token … ghcr.io/token … 403" — genau der Schritt, den die Audit-Welle unten abschafft).
 >
+> **🔧 2026-09-07 07:00–08:30 UTC — Trivy-Blocker + geteilte Docker-Config (Pair Claude+Codex):**
+> **Trivy (GEMESSEN):** recyclage-main-Dispatch 34093332050 rot im Trivy-Image-Gate: `msgpack 1.1.2` GHSA-6v7p-g79w-8964 HIGH —
+> nirgends gepinnt; Staging 190: einzige Kopie = `pip/_vendor/msgpack` (pip 26.2.1, msgpack-Fix 1.2.1 erst 27.08.). footballapp
+> (04.09. 33857324195) gleich. Fix wie rechnungsapp 21.08.: `pip uninstall -y pip setuptools wheel` im Runtime — recyclage dev
+> `bc525da` (Run 34095080340 gruen, Staging Match Versuch 1, python-pkg-Fund weg), footballapp dev `dc2d8a1`. Danach zweiter Blocker:
+> recyclage debian-Target libssh2-1 CVE-2026-58050 HIGH/fixed — `apt-get upgrade` lag hinter `ARG SECURITY_REFRESH=2026-07-13` im
+> Cache. recyclage `cda720a` (Datum 2026-09-07) + Reusable setzt `SECURITY_REFRESH=<UTC-Datum>` als Build-Arg bei JEDEM Build
+> (Dockerfiles mit dem ARG bekommen taeglich frische Debian-Fixes; ohne ARG nur buildx-Warnung). rechnungsapp hat kein ARG
+> (Base-Bumps per Dependabot busten dort). Konvention in README.
+> **Geteilte Docker-Config (GEMESSEN):** footballapp Run 34095082877 Push-Step rot: `docker push` ok, `crane digest` 3x UNAUTHORIZED.
+> Ursache: recyclage-Job „Verify Staging“ (34095080340, proxmox-runner-4) `GHCR login@07:31:23` / logout 07:31:44 in dieselbe
+> `~/.docker/config.json` — die vier Runner-Instanzen auf 104 teilen HOME. Fix: `DOCKER_CONFIG: ${{ runner.temp }}/docker-config`
+> als Job-env in build (+ mkdir), verify-staging, verify-prod. Rerun des footballapp-Jobs zum Push des gefixten Images.
+> **Release v1.12.3** = dieser Stand (manuell; Weekly weiter durch PAT-Scope blockiert). Codex: Dockerfile-Runde keine Funde
+> (hadolint 0, kein pkg_resources im Laufzeitpfad); Reusable-Runde s. Commit.
 > **🧪 2026-09-07 06:35–07:00 UTC — Fleet-Beweise auf v1.12.1 + Fix v1.12.2 (Pair Claude+Codex, 1 Runde, keine Funde):**
 > GEMESSEN: MitarbeiterApp-Dispatch 34091652720 gruen mit 13 gelaufenen Jobs (vorher 1 + 16 skipped) ⇒ Dispatch-Forcierung wirkt.
 > recyclage-main-Dispatch 34091640871 und footballapp-main-Dispatch 34091649964 STARTEN mit den alten Callern (v1.12.0: startup_failure);

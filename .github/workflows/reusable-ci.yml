@@ -847,6 +847,12 @@ jobs:
       github.ref == 'refs/heads/dev' && github.event_name == 'push' }}
     runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 25
+    env:
+      # Job-private Docker-Config (2026-09-07): GHCR-Login/-Logout dieses Jobs darf die geteilte
+      # ~/.docker/config.json der Runner-Instanzen auf LXC 104 nicht anfassen — GEMESSEN Run
+      # 34095080340 (Verify Staging login 07:31:23 / logout 07:31:44) nahm dem parallelen
+      # footballapp-Build (34095082877) die Credentials weg. Gleiche Massnahme wie im Build-Job.
+      DOCKER_CONFIG: ${{ runner.temp }}/docker-config
     permissions:
       contents: read
       packages: write
@@ -935,6 +941,12 @@ jobs:
       github.ref == 'refs/heads/main' && github.event_name == 'push' }}
     runs-on: ${{ fromJSON(inputs.runner-label) }}
     timeout-minutes: 25
+    env:
+      # Job-private Docker-Config (2026-09-07): GHCR-Login/-Logout dieses Jobs darf die geteilte
+      # ~/.docker/config.json der Runner-Instanzen auf LXC 104 nicht anfassen — GEMESSEN Run
+      # 34095080340 (Verify Staging login 07:31:23 / logout 07:31:44) nahm dem parallelen
+      # footballapp-Build (34095082877) die Credentials weg. Gleiche Massnahme wie im Build-Job.
+      DOCKER_CONFIG: ${{ runner.temp }}/docker-config
     permissions:
       contents: read
       issues: write

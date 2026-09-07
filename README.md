@@ -84,6 +84,20 @@ jobs:
       WATCHTOWER_STAGING_TOKEN: ${{ secrets.WATCHTOWER_STAGING_TOKEN }}
 ```
 
+### Dockerfile conventions the pipeline relies on
+
+- **Daily OS security refresh:** the build passes `SECURITY_REFRESH=<UTC date>` as a build argument on
+  every build. Declare `ARG SECURITY_REFRESH` right before the `apt-get update && apt-get upgrade -y`
+  layer of the runtime stage and reference it there (`RUN echo "security-refresh ${SECURITY_REFRESH}" && apt-get …`)
+  — the layer then rebuilds once a day and picks up fixed Debian CVEs, which the Trivy image gate
+  (HIGH/CRITICAL, fixed only) would otherwise block on `main` (measured 2026-09-07: libssh2 CVE-2026-58050
+  sat in a layer cached since a manual date bump in July). Dockerfiles without the ARG only get a
+  buildx "unused build-arg" warning.
+- **No pip/setuptools/wheel in the runtime image:** finish the runtime install with
+  `&& pip uninstall -y pip setuptools wheel`. The runtime never installs anything, and Trivy reports
+  pip's vendored msgpack (GHSA-6v7p-g79w-8964) as a HIGH finding that blocks the `main` push
+  (measured 2026-09-07 on recyclage and footballapp; rechnungsapp has done this since 2026-08-21).
+
 ### ⚠️ Required caller permissions
 
 A **called** reusable workflow's `GITHUB_TOKEN` can only be **equal to or more restrictive
@@ -267,6 +281,12 @@ vor den Smokes und warnt 14 Tage vor Ablauf. Ohne Secret bleibt der Lauf am Tag-
 unberuehrt) und kann nach Anlage per `gh run rerun <id> --failed` fortgesetzt werden.
 
 ## Caveats / known gaps
+
+- **Self-hosted runners share one HOME.** The four runner instances on LXC 104 run as the same user,
+  so `~/.docker/config.json` was shared between concurrent jobs of different repos — a `docker logout`
+  in one job removed the credentials another job was still using (measured 2026-09-07, footballapp run
+  34095082877). Every job that logs into GHCR therefore sets `DOCKER_CONFIG` to a job-private directory
+  under `RUNNER_TEMP`; docker, buildx, crane and cosign all honour it.
 
 - Only `linux/amd64` images are built and scanned (multi-arch removed 2026-09-04).
 - The Watchtower HTTP API must be reachable from the runner (LAN); hosted runners cannot trigger it — the

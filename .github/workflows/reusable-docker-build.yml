@@ -116,12 +116,28 @@ jobs:
       # ${{ }} in run: (Audit 2026-09-03, Fund 1+2: Caller-Inputs nie in Shell-Text).
       IMAGE_NAME: ${{ inputs.image-name }}
       CI_TAG: ${{ inputs.image-name }}:ci-${{ github.run_id }}
+      # Job-private Docker-Config (2026-09-07): die vier Runner-Instanzen auf LXC 104 teilen HOME und
+      # damit ~/.docker/config.json. GEMESSEN footballapp Run 34095082877: Backup + `docker push` ok,
+      # danach `crane digest` 3x UNAUTHORIZED — der parallel laufende recyclage-Job „Verify Staging“
+      # (Run 34095080340) hatte um 07:31:23 in dieselbe Datei eingeloggt und um 07:31:44 ausgeloggt.
+      # docker, buildx, crane und cosign lesen DOCKER_CONFIG; das Verzeichnis lebt in RUNNER_TEMP.
+      DOCKER_CONFIG: ${{ runner.temp }}/docker-config
     outputs:
       tag: ${{ steps.localtag.outputs.tag }}
       size: ${{ steps.size.outputs.mb }}
       digest: ${{ steps.push.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Job-private Docker-Config + Tagesdatum
+        id: day
+        run: |
+          mkdir -p "$DOCKER_CONFIG"
+          # SECURITY_REFRESH = UTC-Datum: Dockerfiles mit `ARG SECURITY_REFRESH` vor ihrem apt-Layer
+          # bekommen so taeglich frische Debian-Security-Updates (GEMESSEN recyclage 34095080340:
+          # libssh2 CVE-2026-58050 HIGH/fixed, weil der apt-Layer seit dem manuellen Datum 2026-07-13
+          # im Cache lag). Dockerfiles ohne das ARG: buildx warnt nur (unused build-arg).
+          echo "date=$(date -u +%F)" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e  # v4.3.0
 
@@ -154,6 +170,7 @@ jobs:
           build-args: |
             ${{ inputs.build-args }}
             GIT_SHA=${{ github.sha }}
+            SECURITY_REFRESH=${{ steps.day.outputs.date }}
 
       - name: Local tag output
         id: localtag
