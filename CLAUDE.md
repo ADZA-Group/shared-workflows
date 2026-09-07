@@ -7,6 +7,17 @@
 > Fleet-Beweis: rechnungsapp Run 33750934660 (Attempt 2 grün; Attempt 1 fiel im ALTEN zweiten buildx-Push an
 > „failed to fetch anonymous token … ghcr.io/token … 403" — genau der Schritt, den die Audit-Welle unten abschafft).
 >
+> **🧪 2026-09-07 06:35–07:00 UTC — Fleet-Beweise auf v1.12.1 + Fix v1.12.2 (Pair Claude+Codex, 1 Runde, keine Funde):**
+> GEMESSEN: MitarbeiterApp-Dispatch 34091652720 gruen mit 13 gelaufenen Jobs (vorher 1 + 16 skipped) ⇒ Dispatch-Forcierung wirkt.
+> recyclage-main-Dispatch 34091640871 und footballapp-main-Dispatch 34091649964 STARTEN mit den alten Callern (v1.12.0: startup_failure);
+> footballapp meldet `::warning::Caller uebergibt entfernte Inputs/Secrets … cloud-runner-label`; recyclage-Stubs dashboard 34091643723 /
+> pipeline-analytics 34091646782 gruen. Beide main-Dispatches rot in GENAU einem Job: Coverage-Gate „compare ref 'origin/main' == HEAD —
+> leerer Diff“ (Audit-Fix B lehnt identische Refs im Blocking-Modus ab; bei Dispatch/Schedule gibt es keinen Push-Diff). Fix e7c9f45:
+> `diff-coverage-threshold` = String `'0'` bei Tags, workflow_dispatch, schedule (PRs unveraendert). **Expression-Falle:** `cond && 0 || x`
+> ist in GH-Expressions IMMER x (0 falsy) — die Tag-Abschaltung vom 03.09. war nie wirksam (kein Tag-Lauf in 90 Tagen). Beweis `_smoke-ci`
+> 34092794779 gruen: Composite-Teilschritt „Diff coverage“ `outcome=skipped`, Gesamt-Threshold weiter aktiv. Codex bestaetigte GELESEN:
+> String '0' truthy, Composite prueft `!= '0'`. Release v1.12.2 = dieser Doku-Commit (manuell, Weekly weiter durch PAT-Scope blockiert).
+> Nebenbefund: 8 alte Kandidaten-Branches `release-v1.9.0…v1.10.0` liegen noch remote (vor dem Cleanup-Job entstanden) — loeschbar.
 > **🩹 2026-09-04 SPÄTNACHMITTAG — v1.12.0-Nachwehen, Fix-forward auf dev (Pair Claude+Codex):**
 > **Vorfall 1 — Vertragsbruch des floating @v1 (GEMESSEN):** v1.12.0 entfernte 20 Inputs + 4 Secrets; der rechnungsapp-Caller
 > uebergab noch `enable-ghcr-prune` ⇒ Dispatch 33858079440 und Push 33859136231 (Parallel-Session, sogar auf main = Promotion

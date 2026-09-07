@@ -110,7 +110,7 @@ this table and `reusable-ci.yml` drift apart.
 | `enable-redis` | `false` | reserved — a redis service is always provided; accepted for caller compatibility |
 | `install-system-deps` | `false` | tesseract/poppler for PDF/OCR apps |
 | `coverage-threshold` | `50` | union-coverage gate (blocking) |
-| `diff-coverage-threshold` | `80` | coverage on changed lines (advisory on PR/dev, hard on main; main compares against `github.event.before`; tags off); `0` disables |
+| `diff-coverage-threshold` | `80` | coverage on changed lines (advisory on PR/dev, hard on main pushes; main compares against `github.event.before`; off on tags, `workflow_dispatch` and `schedule` — there is no push diff, the gate could only refuse or be vacuously green); `0` disables |
 | `enable-property-tests` | `true` | hypothesis lane (advisory on dev, blocking on risky pushes and main) |
 | `full-ci-on-dev-push` | `false` | `true` = security + property lanes also on dev/feature pushes (no CI diet) |
 | `risky-paths` | `[]` | JSON globs merged with the built-in risky defaults (auth/security/permissions/migrations/models/payment/billing/price/delete/purge, Dockerfile, docker-compose*): a hit switches the diet off and makes property-tests/hadolint/bandit blocking |
