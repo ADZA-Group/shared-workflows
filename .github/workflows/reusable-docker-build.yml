@@ -120,8 +120,8 @@ jobs:
       # damit ~/.docker/config.json. GEMESSEN footballapp Run 34095082877: Backup + `docker push` ok,
       # danach `crane digest` 3x UNAUTHORIZED — der parallel laufende recyclage-Job „Verify Staging“
       # (Run 34095080340) hatte um 07:31:23 in dieselbe Datei eingeloggt und um 07:31:44 ausgeloggt.
-      # docker, buildx, crane und cosign lesen DOCKER_CONFIG; das Verzeichnis lebt in RUNNER_TEMP.
-      DOCKER_CONFIG: ${{ runner.temp }}/docker-config
+      # docker, buildx, crane und cosign lesen DOCKER_CONFIG; gesetzt im ersten Step via GITHUB_ENV
+      # (der runner-Kontext ist in Job-env nicht verfuegbar — actionlint-Gate 07.09.).
     outputs:
       tag: ${{ steps.localtag.outputs.tag }}
       size: ${{ steps.size.outputs.mb }}
@@ -132,7 +132,8 @@ jobs:
       - name: Job-private Docker-Config + Tagesdatum
         id: day
         run: |
-          mkdir -p "$DOCKER_CONFIG"
+          mkdir -p "$RUNNER_TEMP/docker-config"
+          echo "DOCKER_CONFIG=$RUNNER_TEMP/docker-config" >> "$GITHUB_ENV"
           # SECURITY_REFRESH = UTC-Datum: Dockerfiles mit `ARG SECURITY_REFRESH` vor ihrem apt-Layer
           # bekommen so taeglich frische Debian-Security-Updates (GEMESSEN recyclage 34095080340:
           # libssh2 CVE-2026-58050 HIGH/fixed, weil der apt-Layer seit dem manuellen Datum 2026-07-13

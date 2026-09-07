@@ -18,8 +18,10 @@
 > (Base-Bumps per Dependabot busten dort). Konvention in README.
 > **Geteilte Docker-Config (GEMESSEN):** footballapp Run 34095082877 Push-Step rot: `docker push` ok, `crane digest` 3x UNAUTHORIZED.
 > Ursache: recyclage-Job „Verify Staging“ (34095080340, proxmox-runner-4) `GHCR login@07:31:23` / logout 07:31:44 in dieselbe
-> `~/.docker/config.json` — die vier Runner-Instanzen auf 104 teilen HOME. Fix: `DOCKER_CONFIG: ${{ runner.temp }}/docker-config`
-> als Job-env in build (+ mkdir), verify-staging, verify-prod. Rerun des footballapp-Jobs zum Push des gefixten Images.
+> `~/.docker/config.json` — die vier Runner-Instanzen auf 104 teilen HOME. Fix: `DOCKER_CONFIG=$RUNNER_TEMP/docker-config` per GITHUB_ENV
+> im ersten Step von build, verify-staging, verify-prod (Job-env kennt den runner-Kontext NICHT — GEMESSEN actionlint-Gate
+> auf f4e1a03: „Unrecognized named-value: 'runner'“; Codex hatte es als zulaessig GELESEN — das Gate hat entschieden).
+> Rerun des footballapp-Jobs zum Push des gefixten Images.
 > **Release v1.12.3** = dieser Stand (manuell; Weekly weiter durch PAT-Scope blockiert). Codex: Dockerfile-Runde keine Funde
 > (hadolint 0, kein pkg_resources im Laufzeitpfad); Reusable-Runde s. Commit.
 > **🧪 2026-09-07 06:35–07:00 UTC — Fleet-Beweise auf v1.12.1 + Fix v1.12.2 (Pair Claude+Codex, 1 Runde, keine Funde):**
