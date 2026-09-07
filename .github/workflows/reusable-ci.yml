@@ -657,10 +657,13 @@ jobs:
         with:
           threshold: ${{ inputs.coverage-threshold }}
           blocking: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
-          # Tag-Pushes: Diff-Coverage AUS (0). Ein Release-Tag zeigt auf den main-Commit,
-          # der Diff gegen origin/main ist leer — das Gate haette dort nur blockieren oder
-          # vakuum-gruen sein koennen (Codex-Fund R1-E2). Der Code wurde auf main gemessen.
-          diff-coverage-threshold: ${{ startsWith(github.ref, 'refs/tags/') && 0 || inputs.diff-coverage-threshold }}
+          # Diff-Coverage AUS ('0') bei Tag-Pushes, workflow_dispatch und schedule: dort gibt es keinen
+          # Push-Diff — der Vergleich gegen origin/main ist leer, das blocking Gate koennte nur ablehnen
+          # oder vakuum-gruen sein (Codex-Fund R1-E2; GEMESSEN 07.09.: main-Dispatches 34091640871 und
+          # 34091649964 rot mit „compare ref 'origin/main' == HEAD“). PRs behalten den Diff (advisory).
+          # STRING '0', nicht Zahl 0: in GH-Expressions ist `cond && 0 || x` immer x (0 ist falsy) —
+          # der Tag-Fall war deshalb seit 03.09. latent wirkungslos (kein Tag-Lauf in 90 Tagen, nie gesehen).
+          diff-coverage-threshold: ${{ (startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && '0' || inputs.diff-coverage-threshold }}
           # Audit 2026-09-03 (Fund B): auf main-PUSHES ist origin/main == HEAD → leerer Diff →
           # diff-cover Exit 0 (GEMESSEN) → das einzige blocking Gate konnte nie failen. Dort
           # jetzt gegen den Stand VOR dem Push (github.event.before); Composite lehnt einen
