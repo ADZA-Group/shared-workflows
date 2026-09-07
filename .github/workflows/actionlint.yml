@@ -3,14 +3,15 @@ name: actionlint
 # Expression-Bugs VOR dem Schaden. Gerade HIER kritisch: ein dev-Push auf
 # reusable-*.yml triggerte bisher KEINEN einzigen Workflow — ein Strukturfehler
 # landete still auf dev und flog erst beim nächsten Release auf, dann fleet-weit.
-# Läuft NUR bei Änderungen an Workflow-Dateien, auf GitHub-Runnern (104 frei).
+# Läuft bei JEDEM dev-Push und PR (kein paths-Filter mehr, 2026-09-07): weekly-release.yml
+# verlangt einen gruenen Gate-Lauf fuer EXAKT den dev-HEAD — ein Commit ausserhalb des alten
+# Filters (GEMESSEN 9fbc6aa, nur scripts/check_callers.py) bekam keinen Lauf, der Auto-Release
+# haette nie starten koennen. Ein ubuntu-Job, ~1 min, Public-Repo = kostenlos.
 # Nutzt die vorhandene Config .github/actionlint.yaml.
 on:
   push:
     branches: [dev]
-    paths: [".github/workflows/**", "scripts/gate_matrix.py", "scripts/check_docs.py", "README.md"]
   pull_request:
-    paths: [".github/workflows/**", "scripts/gate_matrix.py", "scripts/check_docs.py", "README.md"]
 
 permissions:
   contents: read
@@ -35,6 +36,12 @@ jobs:
       # Deploy-Gate-Invariante (Audit 2026-09-03): liest den echten docker-build-
       # if-Ausdruck aus reusable-ci.yml und beweist per Brute-Force, dass kein
       # hartes Gate bei failure/cancelled einen Push zulaesst. Exit 1 = Verstoss.
+      # Die Skripte in scripts/ lintet sonst erst der Orchestrator-Smoke im Release (GEMESSEN
+      # _smoke-ci 33861930824: ruff format rot auf check_callers.py) — hier faellt es beim Push auf.
+      - name: ruff (scripts/)
+        run: |
+          pip install --quiet ruff==0.15.20
+          ruff check scripts && ruff format --check scripts
       - name: Deploy-gate matrix (scripts/gate_matrix.py)
         run: |
           python3 -c "import yaml" 2>/dev/null || pip install --quiet pyyaml
