@@ -85,7 +85,8 @@ jobs:
           MSYS_NO_PATHCONV: "1"
         run: |
           # keine git config (Hausregel): release-v1.sh committet mit -c Identity aus dem Ziel-Commit
-          scripts/release-v1.sh "$SHA" "$NEXT" --yes --no-wait
+          # via bash: das Mode-Bit ist im Checkout nicht garantiert (GEMESSEN Run 34091097931: Exit 126)
+          bash scripts/release-v1.sh "$SHA" "$NEXT" --yes --no-wait
           echo "## 📅 Weekly Release" >> "$GITHUB_STEP_SUMMARY"
           echo "Kandidat \`release-${NEXT}\` aus dev \`${SHA:0:7}\` gepusht — release.yml entscheidet (Smokes → Tag)." >> "$GITHUB_STEP_SUMMARY"
 
