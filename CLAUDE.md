@@ -35,8 +35,23 @@
 > erzwingt jetzt alle Lanes** wie ein main-Push (Bilder werden bei Dispatch nie gepusht).
 > **Fleet-Beweise v1.12.0 GEMESSEN:** recyclage Dispatch 33858092708 gruen, footballapp Dispatch 33858105738 gruen (Backup/Push
 > bei Dispatch skipped — beweist den Retry-Pfad also NICHT), rechnungsapp Push 33859420062 gruen (s.o.), recyclage Push
-> 33857245210 (Trigger HTTP 200, Match Versuch 1). Release v1.12.1: siehe naechsten Block, sobald durch.
-> **✅ RELEASED 2026-09-04 NACHMITTAGS AUTONOM (Run 33857838387, Kandidat aus dev `2339958`, ls-remote-verifiziert): `@v1` = `v1.12.0` = `2339958`** — Entrümpelung + Trigger-Fix + Weekly-Release + Doku-Gate (Details im Block darunter). Erster Anlauf scheiterte an Gate 1 des Skripts (dirty tree = uncommittete Doku), Doku committet (69b494c), Release aus dem gate-gruenen SHA.
+> 33857245210 (Trigger HTTP 200, Match Versuch 1).
+> **07.09. frueh (Fortsetzung, GEMESSEN):** (1) Freitags-Smokes: `_smoke-ci` 33861930824 rot NUR im Ruff-Job (`ruff format`
+> wollte check_callers.py umbrechen; Dispatch-Forcierung bewiesen: `IS_DISPATCH: true`, Filter docker=false, Lint-Dockerfile lief);
+> `_smoke-docker-build` 33861933717 push=true gruen (Backup + Push mit retry-Helfer). (2) **Weekly-Cron 06:00 UTC feuerte bis
+> 06:29 nicht** (Workflow active, dev = Default) — manuell dispatcht. (3) Gate-Konstruktionsfehler: `actionlint.yml` hatte einen
+> paths-Filter ⇒ Commit 9fbc6aa (nur scripts/) bekam keinen Gate-Lauf ⇒ Weekly-Vorbedingung unerfuellbar → 7084e0f: Gate bei jedem
+> Push + ruff fuer scripts/. (4) Weekly-Dispatch 34091097931: Exit 126 (release-v1.sh ohne +x) → fa14055 (`bash …`, 100755).
+> (5) Weekly-Dispatch 34091245793: Vorbedingungen + Rewrite ok, **Kandidaten-Push abgelehnt: RELEASE_TOKEN hat keine Workflows-
+> Berechtigung** (`refusing to allow a Personal Access Token to create or update workflow`). ⇒ **Azad: fine-grained PAT um
+> „Workflows: Read and write“ ergaenzen** (gleicher Token, gleiches Repo), dann `gh workflow run weekly-release.yml --ref dev`.
+> Bis dahin Releases manuell (lokale Credentials). (6) Identitaets-Falle: „Identity aus letztem Commit“ vererbte `dependabot[bot]`
+> auf 3e29e6b; ab jetzt explizit `-c user.name='Azad Ahmed' -c user.email='azad@adza-group.ch'`, auch bei `git rebase`.
+> (7) Prod rechnungsapp extern: `/health` commit 0647982 (Peer-Promote via main-Run 33861068547). Peer-Frage: `refs/tags/v1`
+> = b5006ae ist das annotated-Tag-Objekt, `^{}` = 2339958 — der Tag stand immer korrekt.
+> **✅ RELEASED 2026-09-07 06:3x UTC (manuell `bash scripts/release-v1.sh fa14055 v1.12.1 --yes --no-wait`, Run 34091403262, ls-remote-verifiziert):
+> `@v1` = `v1.12.1` = `fa14055`** — Deprecated-No-ops, Stubs, crane-Retry, Dispatch = Voll-Lauf, check_callers, Gate ohne paths-Filter.
+> (historisch, abgeloest durch v1.12.1 oben) **✅ RELEASED 2026-09-04 NACHMITTAGS AUTONOM (Run 33857838387, Kandidat aus dev `2339958`, ls-remote-verifiziert): `@v1` = `v1.12.0` = `2339958`** — Entrümpelung + Trigger-Fix + Weekly-Release + Doku-Gate (Details im Block darunter). Erster Anlauf scheiterte an Gate 1 des Skripts (dirty tree = uncommittete Doku), Doku committet (69b494c), Release aus dem gate-gruenen SHA.
 > **🏗️ 2026-09-04 NACHMITTAGS — „Watchtower-Trigger + Entrümpelung + Autonomie" (Azad: „mach alle erwähnten Punkte sauber fertig,
 > CI autonom wie es für uns gut ist"; Plan `docs/superpowers/plans/2026-09-04-ci-entruempelung-deploy-trigger.md`; Pair: Design-Runde
 > 3 Funde, Etappe A 1 Runde, Etappe B 2 Runden 3 Funde, Trigger-Nachtrag 1 Fund — alle umgesetzt):**

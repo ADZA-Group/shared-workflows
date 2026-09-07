@@ -224,7 +224,8 @@ gh attestation verify oci://ghcr.io/adza-group/<app>:<tag> --repo ADZA-Group/<ap
 ## Operating model (Azad + Claude, since 2026-09-04)
 
 - **dev** is where Claude (with Codex as reviewer) lands changes after the pair gate: actionlint +
-  `gate_matrix.py` + `check_docs.py` run on every workflow change (`actionlint.yml`).
+  ruff (`scripts/`) + `gate_matrix.py` + `check_docs.py` run on **every** dev push (`actionlint.yml`,
+  no path filter — the weekly release needs a green gate run for exactly the dev head).
 - **@v1** moves only through `release.yml`: candidate branch with rewritten internal refs, smokes on
   the candidate (full orchestrator run, GHCR push on ubuntu), atomic tag push with `RELEASE_TOKEN`.
 - **Monday 06:00 UTC** `weekly-release.yml` releases dev automatically when dev is ahead of `@v1`,
@@ -232,6 +233,11 @@ gh attestation verify oci://ghcr.io/adza-group/<app>:<tag> --repo ADZA-Group/<ap
   `.release-hold` file exists (`touch .release-hold` = emergency stop). Version: minor when a `feat`
   commit landed since `@v1`, otherwise patch. Manual release any time:
   `scripts/release-v1.sh <sha> vX.Y.Z --yes`.
+- **`RELEASE_TOKEN`** must be a fine-grained PAT for this repo with **Contents: read/write AND
+  Workflows: read/write** — the candidate commit rewrites `.github/workflows/*`, and GitHub rejects
+  workflow-file pushes from a token without the Workflows permission (measured 2026-09-07, run
+  34091245793: `refusing to allow a Personal Access Token to create or update workflow`). Manual
+  releases from a developer machine use that developer's own credentials and never hit this.
 - **Fleet callers** pin `@v1`, so the orchestrator's contract is a floating major: **never remove an
   input or secret** (unknown ones are a `startup_failure` without a job or log — incident 2026-09-04,
   rechnungsapp run 33858079440). Deprecate as a declared no-op with a warning instead; delete only in
