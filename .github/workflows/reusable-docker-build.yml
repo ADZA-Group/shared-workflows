@@ -133,6 +133,11 @@ jobs:
         id: day
         run: |
           mkdir -p "$RUNNER_TEMP/docker-config"
+          # Buildx-State (Builder-Instanzen, current) aus der Host-Config mitnehmen: der self-hosted Host
+          # pinnt Builds per BUILDX_BUILDER auf den persistenten Builder, dessen Instanz-Datei unter
+          # ~/.docker/buildx liegt — im privaten Verzeichnis sonst unbekannt (GEMESSEN recyclage main
+          # 34106927430: `ERROR: no builder "shared-builder" found`). Credentials (config.json) werden NICHT kopiert.
+          if [ -d "${HOME}/.docker/buildx" ]; then cp -r "${HOME}/.docker/buildx" "$RUNNER_TEMP/docker-config/"; fi
           echo "DOCKER_CONFIG=$RUNNER_TEMP/docker-config" >> "$GITHUB_ENV"
           # SECURITY_REFRESH = UTC-Datum: Dockerfiles mit `ARG SECURITY_REFRESH` vor ihrem apt-Layer
           # bekommen so taeglich frische Debian-Security-Updates (GEMESSEN recyclage 34095080340:
