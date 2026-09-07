@@ -82,25 +82,35 @@ def check_caller(repo: str, ref: str, path: str, text: str) -> list[str]:
         uses = str((spec or {}).get("uses", ""))
         if not uses.lower().startswith(PREFIX):
             continue
-        name = uses[len(PREFIX):].split("@", 1)[0]
+        name = uses[len(PREFIX) :].split("@", 1)[0]
         c = contract(name)
         if c is None:
-            problems.append(f"{repo}@{ref}:{path} job {job}: referenziert {name}, das lokal nicht existiert")
+            problems.append(
+                f"{repo}@{ref}:{path} job {job}: referenziert {name}, das lokal nicht existiert"
+            )
             continue
         inputs, secrets = c
         bad_in = sorted(set((spec.get("with") or {}).keys()) - inputs)
         sec = spec.get("secrets")
         bad_sec = sorted(set(sec.keys()) - secrets) if isinstance(sec, dict) else []
         if bad_in:
-            problems.append(f"{repo}@{ref}:{path} job {job} -> {name}: unbekannte Inputs {bad_in}")
+            problems.append(
+                f"{repo}@{ref}:{path} job {job} -> {name}: unbekannte Inputs {bad_in}"
+            )
         if bad_sec:
-            problems.append(f"{repo}@{ref}:{path} job {job} -> {name}: unbekannte Secrets {bad_sec}")
+            problems.append(
+                f"{repo}@{ref}:{path} job {job} -> {name}: unbekannte Secrets {bad_sec}"
+            )
     return problems
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--ref", action="append", help="nur diese Refs (Default: alle erwarteten je Repo)")
+    ap.add_argument(
+        "--ref",
+        action="append",
+        help="nur diese Refs (Default: alle erwarteten je Repo)",
+    )
     args = ap.parse_args()
     problems: list[str] = []
     checked = 0
@@ -111,7 +121,9 @@ def main() -> int:
             try:
                 listing = gh_json(f"repos/{repo}/contents/.github/workflows?ref={ref}")
             except NotFound:
-                problems.append(f"{repo}@{ref}: erwarteter Ref fehlt oder kein Zugriff (HTTP 404)")
+                problems.append(
+                    f"{repo}@{ref}: erwarteter Ref fehlt oder kein Zugriff (HTTP 404)"
+                )
                 continue
             except RuntimeError as e:
                 problems.append(f"{repo}@{ref}: nicht lesbar — {e}")
@@ -130,10 +142,14 @@ def main() -> int:
                 checked += 1
                 problems.extend(check_caller(repo, ref, entry["path"], text))
     if checked == 0:
-        problems.append("0 Caller-Workflows geprueft — gh-Auth/Netz pruefen (ein leerer Lauf ist kein Beweis)")
+        problems.append(
+            "0 Caller-Workflows geprueft — gh-Auth/Netz pruefen (ein leerer Lauf ist kein Beweis)"
+        )
     for p in problems:
         print(f"::error::{p}")
-    print(f"check_callers: {checked} Caller-Workflows geprueft, {len(problems)} Problem(e)")
+    print(
+        f"check_callers: {checked} Caller-Workflows geprueft, {len(problems)} Problem(e)"
+    )
     return 1 if problems else 0
 
 
