@@ -7,6 +7,14 @@
 > Fleet-Beweis: rechnungsapp Run 33750934660 (Attempt 2 grün; Attempt 1 fiel im ALTEN zweiten buildx-Push an
 > „failed to fetch anonymous token … ghcr.io/token … 403" — genau der Schritt, den die Audit-Welle unten abschafft).
 >
+> **✅ 2026-09-08 10:07 UTC — Weekly-Release-FILTER: releasen nur bei Aenderungen unter `.github/**` oder `scripts/**` (Azad-Auftrag; Pair 2 Runden Design/Review, 1 echter Fund):**
+> `weekly-release.yml` Vorbedingungen: Tree-Diff `git diff --name-only v1..dev -- .github scripts` leer ⇒ go=false + `::notice` + Step-Summary
+> mit Dateiliste (`paste -sd ' ' -`, NICHT xargs — Codex R2: Apostroph im Dateinamen = xargs-Fehler = Step rot). Manuell (release-v1.sh)
+> ungefiltert. Beweise: Step-Skript per yaml aus der Datei gezogen und lokal mit Env-Stubs (GITHUB_OUTPUT/STEP_SUMMARY, echtes gh) gefahren:
+> Doku-Bereich d3a9dae..8142f9e ⇒ go=false, Kommentar-Bereich ⇒ go=true. E2E: dry-run 34213384671 „wuerde v1.12.8 aus 9774fe7 releasen“ ⇒
+> echter Weekly-Dispatch 34213451386 ⇒ release.yml 34213472735 gruen (2,4 min) ⇒ **v1^{} = v1.12.8^{} = 9774fe7**. Negativer Pfad: dieser
+> Doku-Commit ⇒ dry-run muss „kein Release“ melden (Ergebnis in Memory/Vault/Artifact). Harness-Gotcha: lokales `git fetch --tags` bewegt ein
+> verschobenes v1 NICHT (`-f` noetig; Runner-Checkout ist frisch). Versionsbump-Falle: `feat(...)`-Prefix haette v1.13.0 erzeugt ⇒ `ci(...)`.
 > **✅ 2026-09-08 09:47 UTC — Weekly-Release ENTBLOCKT, v1.12.7 = `8142f9e` AUTONOM released (GEMESSEN):** Azad hat dem
 > fine-grained RELEASE_TOKEN „Workflows: read/write“ gegeben (Token-Wert unveraendert, Ablauf 2027-09-05). Beweis = echter Lauf statt
 > Probe: `gh workflow run weekly-release.yml --ref dev` → Run 34211900034 (Vorbedingungen ok, `next=v1.12.7 sha=8142f9e`, Kandidat
