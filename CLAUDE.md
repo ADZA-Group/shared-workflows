@@ -7,7 +7,7 @@
 > Fleet-Beweis: rechnungsapp Run 33750934660 (Attempt 2 grün; Attempt 1 fiel im ALTEN zweiten buildx-Push an
 > „failed to fetch anonymous token … ghcr.io/token … 403" — genau der Schritt, den die Audit-Welle unten abschafft).
 >
-> **🧪 2026-09-08 (nach 08:00 UTC) — Pair-Runde „ist noch was zu machen?“ (Claude+Codex, 3 Runden: Blind/Review/Review, 5 echte Funde, 0 Fehlalarme):**
+> **🧪 2026-09-08 (nach 08:00 UTC) — Pair-Runde „ist noch was zu machen?“ (Claude+Codex, 3 Runden: Blind/Review/Review, 6 echte Funde = 3 Blind + 2 + 1 Review, 0 Fehlalarme):**
 > Codex: README-Widerspruch RELEASE_TOKEN (braucht `contents: write` UND `workflows: write`); Compose-Patch in `scripts/watchtower-http-api.sh`
 > suchte global statt im watchtower-Block; `HARD_GATES` in gate_matrix.py war freistehend (gestrichener Eintrag blieb gruen ⇒ Invariante
 > `ADVISORY_IN_NEEDS`, jeder Needs-Job muss klassifiziert sein); Block-Grenze schluckte Top-Level-Sektionen (x-* mit 4er-Einrueckung) und
