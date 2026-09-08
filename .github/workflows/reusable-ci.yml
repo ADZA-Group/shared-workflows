@@ -101,6 +101,11 @@ on:
         required: false
         type: string
         default: "frontend"
+      node-version:
+        required: false
+        type: string
+        default: "22"
+        description: "Forwarded to the frontend lane: Node.js version for setup-node (default 22 = LTS; Node 20 is EOL)"
       a11y-url:
         required: false
         type: string
@@ -763,6 +768,7 @@ jobs:
     uses: adza-group/shared-workflows/.github/workflows/reusable-frontend.yml@v1
     with:
       frontend-dir: ${{ inputs.frontend-dir }}
+      node-version: ${{ inputs.node-version }}
       runner-label: ${{ inputs.runner-label }}
       a11y-url: ${{ inputs.a11y-url }}
       a11y-paths: ${{ inputs.a11y-paths }}

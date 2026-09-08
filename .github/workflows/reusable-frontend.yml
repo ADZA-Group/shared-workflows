@@ -21,7 +21,7 @@ on:
       node-version:
         required: false
         type: string
-        default: "20"
+        default: "22"   # Node 20 ist EOL (2026-04-30); vitest 5 verlangt >= 22 (recyclage #125, 08.09.)
       runner-label:
         required: false
         type: string

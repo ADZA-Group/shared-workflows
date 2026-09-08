@@ -132,6 +132,7 @@ this table and `reusable-ci.yml` drift apart.
 | `security-blocking-scanners` | `""` | opt-in dual-gate per app, comma-separated from `semgrep,pip-audit`: the named scanners block on main/tags and on risky pushes, stay advisory on PR/dev. Unknown names fail the `changes` job. |
 | `has-frontend` | `false` | enable the frontend lane (`reusable-frontend.yml`) |
 | `frontend-dir` | `frontend` | frontend directory |
+| `node-version` | `22` | frontend lane: Node.js version for setup-node (Node 20 is EOL; vitest 5 needs 22+) |
 | `a11y-url` | `""` | frontend lane: base URL for the pa11y scan (empty = serve the build output locally) |
 | `a11y-paths` | `/` | frontend lane: space-separated paths to a11y-scan |
 | `a11y-threshold` | `0` | frontend lane: max allowed pa11y errors per page |
