@@ -344,6 +344,7 @@ jobs:
           F_RISKY: ${{ steps.filter.outputs.risky }}
           F_FULLCI: ${{ steps.filter.outputs.fullci }}
           MAIN_PUSH: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+          DEV_PUSH: ${{ github.ref == 'refs/heads/dev' && github.event_name == 'push' }}
           IS_SCHEDULE: ${{ github.event_name == 'schedule' }}
           IS_DISPATCH: ${{ github.event_name == 'workflow_dispatch' }}
           DEPRECATED_INPUTS: "${{ inputs.enable-ghcr-prune && 'enable-ghcr-prune ' || '' }}${{ inputs.enable-load-test && 'enable-load-test ' || '' }}${{ inputs.multi-arch && 'multi-arch ' || '' }}${{ inputs.enable-mutation && 'enable-mutation ' || '' }}${{ inputs.cloud-runner-label != '' && 'cloud-runner-label ' || '' }}"
@@ -391,13 +392,20 @@ jobs:
           # Deterministischer Deploy (2026-09-04, Codex-Design-Fund): ein Watchtower-Trigger ohne
           # Versions-Assert waere kein Deploy-Beweis, ohne Token kein Trigger — beides ist ein
           # Konfigurationsfehler des Callers und bricht hier fail-fast ab, nicht erst im Verify.
+          # Token-Check NUR dort, wo der Trigger laeuft (verify-staging = dev-Push, verify-prod = main-Push):
+          # Dependabot-PR-Laeufe haben keine Repo-Secrets — GEMESSEN recyclage 34116739560/34116738027/34116572588
+          # (07.09., alle rot an diesem Check, vor v1.11.4 gruen). Die URL-Paarung bleibt ueberall Pflicht.
           if [ -n "${WT_STAGING_URL:-}" ]; then
             [ -n "${SV_URL:-}" ] || { echo "::error::staging-watchtower-url gesetzt, aber staging-version-url leer — der Versions-Assert ist das Gate"; exit 1; }
-            [ "${WT_STAGING_TOKEN_SET:-false}" = "true" ] || { echo "::error::staging-watchtower-url gesetzt, aber Secret WATCHTOWER_STAGING_TOKEN fehlt (Caller: secrets-Mapping)"; exit 1; }
+            if [ "$DEV_PUSH" = "true" ]; then
+              [ "${WT_STAGING_TOKEN_SET:-false}" = "true" ] || { echo "::error::staging-watchtower-url gesetzt, aber Secret WATCHTOWER_STAGING_TOKEN fehlt (Caller: secrets-Mapping)"; exit 1; }
+            fi
           fi
           if [ -n "${WT_PROD_URL:-}" ]; then
             [ -n "${PV_URL:-}" ] || { echo "::error::prod-watchtower-url gesetzt, aber prod-version-url leer — der Versions-Assert ist das Gate"; exit 1; }
-            [ "${WT_PROD_TOKEN_SET:-false}" = "true" ] || { echo "::error::prod-watchtower-url gesetzt, aber Secret WATCHTOWER_PROD_TOKEN fehlt (Caller: secrets-Mapping)"; exit 1; }
+            if [ "$MAIN_PUSH" = "true" ]; then
+              [ "${WT_PROD_TOKEN_SET:-false}" = "true" ] || { echo "::error::prod-watchtower-url gesetzt, aber Secret WATCHTOWER_PROD_TOKEN fehlt (Caller: secrets-Mapping)"; exit 1; }
+            fi
           fi
           # Opt-in Dual-Gate (2026-09-04): Scanner-Liste normalisieren (Leerzeichen raus) und
           # fail-fast validieren — ein Tippfehler bliebe sonst still advisory.

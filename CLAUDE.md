@@ -7,6 +7,12 @@
 > Fleet-Beweis: rechnungsapp Run 33750934660 (Attempt 2 grün; Attempt 1 fiel im ALTEN zweiten buildx-Push an
 > „failed to fetch anonymous token … ghcr.io/token … 403" — genau der Schritt, den die Audit-Welle unten abschafft).
 >
+> **🩹 2026-09-08 frueh — Regression seit v1.11.4: Dependabot-PRs rot (GEMESSEN recyclage 34116739560/34116738027/34116572588):**
+> der changes-Job verlangte das Watchtower-Secret auf JEDEM Lauf, sobald der Caller `staging-watchtower-url` setzt — Dependabot-PR-Laeufe
+> haben keine Repo-Secrets ⇒ `staging-watchtower-url gesetzt, aber Secret … fehlt`, Run rot, Jarvis-Auto-Merge blockiert (PRs #116/#125/#127).
+> Fix: Secret-Check nur bei `DEV_PUSH` (Staging) bzw. `MAIN_PUSH` (Prod) — dort laufen die Verify-Jobs; URL-Paarung bleibt ueberall Pflicht.
+> Lehre: jede Validierung, die Secrets liest, muss die Event-Klassen kennen, in denen Secrets fehlen (Dependabot-PR, Fork-PR).
+> Weekly-Cron GEMESSEN: feuerte am 07.09. um 11:50 UTC (Cron 06:00, ~6 h Verzoegerung) und lief als No-op gruen (dev == @v1).
 > **🔧 2026-09-07 07:00–08:30 UTC — Trivy-Blocker + geteilte Docker-Config (Pair Claude+Codex):**
 > **Trivy (GEMESSEN):** recyclage-main-Dispatch 34093332050 rot im Trivy-Image-Gate: `msgpack 1.1.2` GHSA-6v7p-g79w-8964 HIGH —
 > nirgends gepinnt; Staging 190: einzige Kopie = `pip/_vendor/msgpack` (pip 26.2.1, msgpack-Fix 1.2.1 erst 27.08.). footballapp
