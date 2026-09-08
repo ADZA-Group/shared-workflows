@@ -244,7 +244,9 @@ gh attestation verify oci://ghcr.io/adza-group/<app>:<tag> --repo ADZA-Group/<ap
   the candidate (full orchestrator run, GHCR push on ubuntu), atomic tag push with `RELEASE_TOKEN`.
 - **Monday 06:00 UTC** `weekly-release.yml` releases dev automatically when dev is ahead of `@v1`,
   the actionlint gate is green for exactly that SHA, no run for it is still open and no
-  `.release-hold` file exists (`touch .release-hold` = emergency stop). Version: minor when a `feat`
+  `.release-hold` file exists (`touch .release-hold` = emergency stop), and at least one file under
+  `.github/` or `scripts/` changed since `@v1` (docs-only changes never release; the manual
+  `scripts/release-v1.sh` path is unfiltered). Version: minor when a `feat`
   commit landed since `@v1`, otherwise patch. Manual release any time:
   `scripts/release-v1.sh <sha> vX.Y.Z --yes`.
 - **`RELEASE_TOKEN`** must be a fine-grained PAT for this repo with **Contents: read/write AND
