@@ -56,6 +56,7 @@ sleep 4
 docker ps --format '{{.Names}} | {{.Image}} | {{.Status}} | {{.Ports}}' | grep -i watchtower
 # 4) Endpoint live + Auth erzwungen? POST mit falschem Token MUSS 401 liefern (loest kein Update aus);
 #    alles andere (000 = kein Listener, 200 = Auth aus) ist ein Fehler (Codex-Fund: vorher GET + nicht asserted).
-STATUS=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 -X POST -H 'Authorization: Bearer wrong-token' "http://${LXC_IP}:8080/v1/update" || true)
+PROBE_TOKEN=wrong-token   # bewusst falsch: nur die 401-Probe, kein Secret
+STATUS=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 -X POST -H "Authorization: Bearer ${PROBE_TOKEN}" "http://${LXC_IP}:8080/v1/update" || true)  # gitleaks:allow
 echo "probe POST falscher Token -> HTTP ${STATUS}"
 [ "$STATUS" = "401" ] || { echo "FEHLER: erwartet 401 (Listener + Auth), bekommen ${STATUS}"; exit 1; }

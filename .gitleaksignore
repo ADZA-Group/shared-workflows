@@ -1,0 +1,7 @@
+# gitleaks-Fingerprints bekannter Fehlalarme (Format: <commit>:<datei>:<regel>:<zeile>).
+# scripts/watchtower-http-api.sh: die 401-Probe nutzte den Literal-Dummy 'Bearer wrong-token' —
+# kein Secret; seit dem Fix (Variable + gitleaks:allow) matcht die Zeile nicht mehr, die drei
+# Commits davor bleiben in der Historie (GEMESSEN Release-Lauf 34205542516, Regel curl-auth-header).
+4382ace2441964aadd89e0af7123487011dc45e7:scripts/watchtower-http-api.sh:curl-auth-header:58
+6df718430ff026a667ba6919680a5ceb65202038:scripts/watchtower-http-api.sh:curl-auth-header:59
+86837a1dcf8ac75cb3e294d9c247cd81a4c9e6bc:scripts/watchtower-http-api.sh:curl-auth-header:59
