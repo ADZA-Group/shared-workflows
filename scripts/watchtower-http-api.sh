@@ -7,15 +7,16 @@ APP_DIR="$1"; LXC_IP="$2"; SWAP="${3:-0}"
 cd "$APP_DIR"
 [ -f docker-compose.yml ] || { echo "kein docker-compose.yml in $APP_DIR"; exit 1; }
 
-# 1) Token (nur ins .env, nie ausgeben)
-if ! grep -q '^WATCHTOWER_HTTP_API_TOKEN=' .env 2>/dev/null; then
+# 1) Token (nur ins .env, nie ausgeben). Rechte VOR dem Schreiben setzen (Security-Review 08.09.:
+#    sonst liegt der Token kurz mit den alten .env-Rechten auf der Platte).
+umask 077
+touch .env && chmod 600 .env
+if ! grep -q '^WATCHTOWER_HTTP_API_TOKEN=' .env; then
   printf 'WATCHTOWER_HTTP_API_TOKEN=%s\n' "$(openssl rand -hex 32)" >> .env
   echo "token: neu angelegt"
 else
   echo "token: vorhanden"
 fi
-chmod 600 .env
-
 # 2) Compose-Block patchen (Python: mehrzeilige, idempotente Edits)
 python3 - "$LXC_IP" "$SWAP" <<'PY'
 import pathlib, re, sys
