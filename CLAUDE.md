@@ -7,6 +7,14 @@
 > Fleet-Beweis: rechnungsapp Run 33750934660 (Attempt 2 grün; Attempt 1 fiel im ALTEN zweiten buildx-Push an
 > „failed to fetch anonymous token … ghcr.io/token … 403" — genau der Schritt, den die Audit-Welle unten abschafft).
 >
+> **✅ 2026-09-08 10:50 UTC — v1.12.9 = `f08ebeb`: Frontend-Lane Node 22 (Default) + Input `node-version` in reusable-ci (GEMESSEN):**
+> Anlass recyclage Dependabot #125 (vitest 4→5 verlangt Node >= 22; Lane lief auf Node 20, das seit 2026-04-30 EOL ist). reusable-frontend
+> Default "20"→"22", reusable-ci reicht `node-version` (string, Default "22") durch — Caller koennen pinnen (has-frontend=true nur bei
+> recyclage-app und azad-ahmed/MitarbeiterApp). Codex-Review: keine Funde. Release ueber den Weekly-Dispatch (Filter: .github geaendert):
+> Run 34217296364 → release.yml 34217368443 gruen (2 min) → v1^{} = v1.12.9^{} = f08ebeb. Ruecklauf-Beweis kommt ueber die recyclage-PR-Lane
+> (setup-node „node-version: 22“). #125 selbst: Codex-WSL baut auf Branch `deps/npm-majors-2026-09` (Cherry-pick 66c5488 + Typ-Augmentation
+> `frontend/src/vitest-jest-dom.d.ts` fuer jest-dom 7 unter vitest 5 — Upstream-Issue testing-library/jest-dom #738 offen); Codex-Sandbox kann
+> `.git` nicht schreiben (index.lock EROFS) → Claude committet/pusht aus Windows.
 > **✅ 2026-09-08 10:07 UTC — Weekly-Release-FILTER: releasen nur bei Aenderungen unter `.github/**` oder `scripts/**` (Azad-Auftrag; Pair 2 Runden Design/Review, 1 echter Fund):**
 > `weekly-release.yml` Vorbedingungen: Tree-Diff `git diff --name-only v1..dev -- .github scripts` leer ⇒ go=false + `::notice` + Step-Summary
 > mit Dateiliste (`paste -sd ' ' -`, NICHT xargs — Codex R2: Apostroph im Dateinamen = xargs-Fehler = Step rot). Manuell (release-v1.sh)
