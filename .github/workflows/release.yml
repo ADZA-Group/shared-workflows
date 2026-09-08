@@ -79,7 +79,7 @@ jobs:
         env:
           TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
-          [ -n "$TOKEN" ] || { echo "::error::Secret RELEASE_TOKEN fehlt — Tag-Push wuerde am Ruleset scheitern (fine-grained PAT, Contents r/w)"; exit 1; }
+          [ -n "$TOKEN" ] || { echo "::error::Secret RELEASE_TOKEN fehlt — Tag-Push wuerde am Ruleset scheitern (fine-grained PAT, Contents r/w + Workflows r/w)"; exit 1; }
           HDR=$(mktemp)
           CODE=$(curl -sS -o /dev/null -D "$HDR" -w '%{http_code}' -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" https://api.github.com/user || echo 000)
           case "$CODE" in 2*) ;; *) echo "::error::RELEASE_TOKEN ungueltig oder API-Fehler (HTTP $CODE) — Release geblockt"; exit 1 ;; esac
@@ -140,7 +140,8 @@ jobs:
       contents: write
     steps:
       # Token fuer den Tag-Push: Secret RELEASE_TOKEN (fine-grained PAT eines Repo-Admins,
-      # contents: write) bekommt den Ruleset-Bypass "RepositoryRole admin" von protect-v1-tag.
+      # contents: write; dazu workflows: write fuer den Kandidaten-Push in weekly-release.yml) bekommt den
+      # Ruleset-Bypass "RepositoryRole admin" von protect-v1-tag.
       # Fehlt das Secret, faellt der Push auf den Workflow-Token zurueck — den laesst das
       # Ruleset (update/non_fast_forward) NICHT durch: GitHub bietet fuer die Actions-
       # Integration keinen Bypass (422 "must be part of the ruleset source"), Deploy-Keys
@@ -167,7 +168,7 @@ jobs:
           # auf v1 (Refspec mit +), nie global, damit ein zwischenzeitlich angelegter
           # Version-Tag nicht ueberschrieben werden kann.
           if ! git push --atomic origin "refs/tags/${VERSION}:refs/tags/${VERSION}" "+refs/tags/v1:refs/tags/v1"; then
-            echo "::error::Tag-Push abgelehnt (Ruleset protect-v1-tag: update/non_fast_forward). Beide Tags unveraendert. Loesung: Repo-Secret RELEASE_TOKEN = fine-grained PAT eines Admins (contents: write) → Admin-Bypass, Job laeuft autonom. Manuell: git tag -a ${VERSION} ${SHA} && git tag -f -a v1 ${SHA} && git push --atomic origin refs/tags/${VERSION} +refs/tags/v1"
+            echo "::error::Tag-Push abgelehnt (Ruleset protect-v1-tag: update/non_fast_forward). Beide Tags unveraendert. Loesung: Repo-Secret RELEASE_TOKEN = fine-grained PAT eines Admins (contents: write + workflows: write) → Admin-Bypass, Job laeuft autonom. Manuell: git tag -a ${VERSION} ${SHA} && git tag -f -a v1 ${SHA} && git push --atomic origin refs/tags/${VERSION} +refs/tags/v1"
             exit 1
           fi
           FINAL=$(git ls-remote origin 'refs/tags/v1^{}' | cut -f1)

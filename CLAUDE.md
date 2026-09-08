@@ -7,6 +7,14 @@
 > Fleet-Beweis: rechnungsapp Run 33750934660 (Attempt 2 grün; Attempt 1 fiel im ALTEN zweiten buildx-Push an
 > „failed to fetch anonymous token … ghcr.io/token … 403" — genau der Schritt, den die Audit-Welle unten abschafft).
 >
+> **✅ 2026-09-08 09:47 UTC — Weekly-Release ENTBLOCKT, v1.12.7 = `8142f9e` AUTONOM released (GEMESSEN):** Azad hat dem
+> fine-grained RELEASE_TOKEN „Workflows: read/write“ gegeben (Token-Wert unveraendert, Ablauf 2027-09-05). Beweis = echter Lauf statt
+> Probe: `gh workflow run weekly-release.yml --ref dev` → Run 34211900034 (Vorbedingungen ok, `next=v1.12.7 sha=8142f9e`, Kandidat
+> mit dem PAT gepusht — genau der Schritt, der am 07.09. mit `refusing to allow a Personal Access Token to create or update workflow
+> … without workflow scope` scheiterte, Run 34091245793) → release.yml 34211925975 gruen in 2,5 min (Smokes + atomarer Tag-Push +
+> Branch-Cleanup); ls-remote peeled: `v1^{}` = `v1.12.7^{}` = 8142f9e. Montags-Cron laeuft damit wieder ohne Hand. Kommentare und
+> Fehlertexte in weekly-release.yml + release.yml nennen jetzt beide Rechte (Contents r/w + Workflows r/w). dry-run prueft den Push
+> NICHT (nur Echo) — ein „gruener Dry-run“ beweist das Token nicht. PAT-Rechte aendert nur Azad im GitHub-Konto, nie der Agent.
 > **🧪 2026-09-08 (nach 08:00 UTC) — Pair-Runde „ist noch was zu machen?“ (Claude+Codex, 3 Runden: Blind/Review/Review, 6 echte Funde = 3 Blind + 2 + 1 Review, 0 Fehlalarme):**
 > Codex: README-Widerspruch RELEASE_TOKEN (braucht `contents: write` UND `workflows: write`); Compose-Patch in `scripts/watchtower-http-api.sh`
 > suchte global statt im watchtower-Block; `HARD_GATES` in gate_matrix.py war freistehend (gestrichener Eintrag blieb gruen ⇒ Invariante

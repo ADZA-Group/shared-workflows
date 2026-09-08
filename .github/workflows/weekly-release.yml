@@ -41,8 +41,9 @@ jobs:
         with:
           ref: dev
           fetch-depth: 0
-          # RELEASE_TOKEN (Admin-PAT, Contents r/w): GITHUB_TOKEN-Pushes loesen keine Workflows
-          # aus — der Kandidaten-Branch muss aber release.yml triggern. Nur dieser Job sieht ihn.
+          # RELEASE_TOKEN (Admin-PAT, Contents r/w UND Workflows r/w — der Kandidat schreibt Workflow-Dateien um,
+          # ohne Workflows-Recht: `refusing to allow a Personal Access Token to create or update workflow`, GEMESSEN 07.09.):
+          # GITHUB_TOKEN-Pushes loesen keine Workflows aus — der Kandidaten-Branch muss aber release.yml triggern. Nur dieser Job sieht ihn.
           token: ${{ secrets.RELEASE_TOKEN || github.token }}
 
       - name: Vorbedingungen pruefen
