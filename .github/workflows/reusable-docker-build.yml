@@ -338,7 +338,10 @@ jobs:
             # Expliziter Rueckgabe-Check: ein Push, der erst den Digest druckt und dann
             # fehlschlaegt, darf nicht als Erfolg geparst werden.
             docker push "$1" | tee /tmp/push.log >&2 || return $?
-            grep -oE 'digest: sha256:[0-9a-f]{64}' /tmp/push.log | head -1 | cut -d' ' -f2
+            # -a: Dockers Progress-Ausgabe enthaelt Steuer-/NUL-Bytes; ohne -a druckt grep nur
+            # "binary file matches", der Digest bleibt leer und ein ERFOLGREICHER Push wird als Fehler
+            # gewertet (GEMESSEN Peer-Session rechnungsapp Run 34204142178 Attempt 1, 08.09.; nondeterministisch).
+            LC_ALL=C grep -aoE 'digest: sha256:[0-9a-f]{64}' /tmp/push.log | head -1 | cut -d' ' -f2
           }
           VERIFY="${IMAGE_NAME}:verify-$(printf '%s' "$REF_NAME" | tr -c 'A-Za-z0-9_.-' '-')"
           DIGEST=$(push_tag "$VERIFY")
