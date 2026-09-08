@@ -275,7 +275,8 @@ Commit, der alle internen Refs `adza-group/shared-workflows/...@v1` auf `@releas
 ablegt. `release.yml` laeuft auf dem Branch: Kandidaten-Check → Smokes (Orchestrator mit voller CI,
 Docker-Push auf ubuntu) → atomarer Tag-Push (`vX.Y.Z` + `v1`) auf den Original-SHA → Branch-Cleanup.
 Der Tag-Push braucht das Repo-Secret `RELEASE_TOKEN` (fine-grained PAT eines Repo-Admins,
-`contents: write`), weil das Ruleset `protect-v1-tag` nur Admins bypassen laesst und GitHub weder die
+`contents: write` **und** `workflows: write` — letzteres fuer den Kandidaten-Push, der Workflow-Dateien
+umschreibt, s. Operating model), weil das Ruleset `protect-v1-tag` nur Admins bypassen laesst und GitHub weder die
 Actions-Integration noch (org-seitig deaktivierte) Deploy-Keys zulaesst. `release.yml` prueft das Token
 vor den Smokes und warnt 14 Tage vor Ablauf. Ohne Secret bleibt der Lauf am Tag-Push stehen (Tags
 unberuehrt) und kann nach Anlage per `gh run rerun <id> --failed` fortgesetzt werden.

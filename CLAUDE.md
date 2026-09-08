@@ -7,6 +7,15 @@
 > Fleet-Beweis: rechnungsapp Run 33750934660 (Attempt 2 grün; Attempt 1 fiel im ALTEN zweiten buildx-Push an
 > „failed to fetch anonymous token … ghcr.io/token … 403" — genau der Schritt, den die Audit-Welle unten abschafft).
 >
+> **🧪 2026-09-08 (nach 08:00 UTC) — Pair-Runde „ist noch was zu machen?“ (Claude+Codex, 3 Runden: Blind/Review/Review, 5 echte Funde, 0 Fehlalarme):**
+> Codex: README-Widerspruch RELEASE_TOKEN (braucht `contents: write` UND `workflows: write`); Compose-Patch in `scripts/watchtower-http-api.sh`
+> suchte global statt im watchtower-Block; `HARD_GATES` in gate_matrix.py war freistehend (gestrichener Eintrag blieb gruen ⇒ Invariante
+> `ADVISORY_IN_NEEDS`, jeder Needs-Job muss klassifiziert sein); Block-Grenze schluckte Top-Level-Sektionen (x-* mit 4er-Einrueckung) und
+> ein 2-Leerzeichen-Kommentar mitten im Service beendete den Block (image: danach stumm ungeswappt); vorhandenes `ports:` bekam einen
+> zweiten Key. Claude: Substring-Checks fielen auf auskommentierte Alt-Services herein ⇒ alle Checks zeilenverankert. Beweis:
+> `scripts/tests/test_watchtower_compose_patch.py` (11 Tests, Heredoc exakt wie in bash ausgefuehrt, jeder Fix per Mutation rot GEMESSEN),
+> laeuft jetzt im actionlint-Gate (ruff-Step, `python3 -m pytest scripts/tests`). Vorfall (Regel 15): erstes Regressions-Fixture blieb
+> bei zurueckgedrehtem Fix GRUEN (alte Grenze stoppte schon an `  environment:`) — ersetzt. Kein @v1-Release noetig (nur scripts/docs/Gate).
 > **✅ 2026-09-08 08:00 UTC — Prod-Watchtower-Trigger 103/102 EINGERICHTET (Azads ausdrueckliche Ausnahme von der Prod-Anfass-Regel):**
 > Hosts auf S2 (`ssh rechnungsapp` = 192.168.1.103, `ssh recyclingapp` = .102): Token per `openssl rand -hex 32` nur in `/opt/<app>/.env`
 > (chmod 600), Compose-Block `WATCHTOWER_HTTP_API_UPDATE/-TOKEN/-PERIODIC_POLLS` + `ports: 192.168.1.<lxc>:8080:8080`, 102 zusaetzlich

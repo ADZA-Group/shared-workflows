@@ -51,6 +51,11 @@ HARD_GATES = (
     "property-tests",
     "license-check",
 )
+# Jobs in docker-build.needs, die BEWUSST kein hartes Gate sind (Codex-Fund 08.09.: HARD_GATES war eine
+# freistehende Liste — ein gestrichener Eintrag haette nur die Pruefzahl gesenkt und waere gruen geblieben).
+# Invariante: needs minus `changes` == HARD_GATES ∪ ADVISORY_IN_NEEDS. Neuer Needs-Job ohne Klassifikation
+# oder ein aus HARD_GATES gestrichenes Gate ⇒ rot. Aktuell leer: jeder Needs-Job ist ein hartes Gate.
+ADVISORY_IN_NEEDS: tuple[str, ...] = ()
 CHANGE_KEYS = ("light", "any_code", "docker", "ci", "risky")
 EVENTS = ("push", "pull_request", "workflow_dispatch", "schedule")
 REFS = ("refs/heads/main", "refs/heads/dev", "refs/tags/v1.2.3")
@@ -114,6 +119,14 @@ def check_docker_build(wf: dict) -> int:
     missing = [g for g in HARD_GATES if g not in needs_names]
     if missing:
         print(f"::error::harte Gates fehlen in docker-build.needs: {missing} (Fund A)")
+        return 1
+    unclassified = [
+        n for n in needs_names if n not in HARD_GATES and n not in ADVISORY_IN_NEEDS
+    ]
+    if unclassified:
+        print(
+            f"::error::Needs-Jobs ohne Klassifikation (HARD_GATES oder ADVISORY_IN_NEEDS): {unclassified}"
+        )
         return 1
     code = compile_if(job, "docker-build")
 

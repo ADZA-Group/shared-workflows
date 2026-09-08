@@ -38,10 +38,12 @@ jobs:
       # hartes Gate bei failure/cancelled einen Push zulaesst. Exit 1 = Verstoss.
       # Die Skripte in scripts/ lintet sonst erst der Orchestrator-Smoke im Release (GEMESSEN
       # _smoke-ci 33861930824: ruff format rot auf check_callers.py) — hier faellt es beim Push auf.
-      - name: ruff (scripts/)
+      - name: ruff + pytest (scripts/)
         run: |
-          pip install --quiet ruff==0.15.20
+          pip install --quiet ruff==0.15.20 pytest pyyaml
           ruff check scripts && ruff format --check scripts
+          # scripts/tests: Compose-Patch des Host-Skripts (Pair 08.09.) — ohne Gate waeren die Tests totes Gewicht
+          python3 -m pytest scripts/tests -q -p no:cacheprovider
       - name: Deploy-gate matrix (scripts/gate_matrix.py)
         run: |
           python3 -c "import yaml" 2>/dev/null || pip install --quiet pyyaml
