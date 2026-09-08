@@ -7,6 +7,14 @@
 > Fleet-Beweis: rechnungsapp Run 33750934660 (Attempt 2 grün; Attempt 1 fiel im ALTEN zweiten buildx-Push an
 > „failed to fetch anonymous token … ghcr.io/token … 403" — genau der Schritt, den die Audit-Welle unten abschafft).
 >
+> **✅ 2026-09-08 08:00 UTC — Prod-Watchtower-Trigger 103/102 EINGERICHTET (Azads ausdrueckliche Ausnahme von der Prod-Anfass-Regel):**
+> Hosts auf S2 (`ssh rechnungsapp` = 192.168.1.103, `ssh recyclingapp` = .102): Token per `openssl rand -hex 32` nur in `/opt/<app>/.env`
+> (chmod 600), Compose-Block `WATCHTOWER_HTTP_API_UPDATE/-TOKEN/-PERIODIC_POLLS` + `ports: 192.168.1.<lxc>:8080:8080`, 102 zusaetzlich
+> containrrr:latest → nickfedor 1.17.2; nur `docker compose up -d watchtower`. GEMESSEN: `POST /v1/update` ohne/mit falschem Token → 401
+> auf beiden; Poll-Intervall war bereits 300 s. Secrets `WATCHTOWER_PROD_TOKEN` per Pipe gesetzt (07:54). Caller dev: rechnungsapp a695679,
+> recyclage 02cedf6 (`prod-watchtower-url`, `prod-version-url`, Secret-Mapping) — greift beim naechsten dev→main-Push. Werkzeug:
+> `scripts/watchtower-http-api.sh <app-dir> <lxc-ip> <swap-image 0|1>` (idempotent, asserted 401; Codex-Funde eingearbeitet) fuer
+> weitere Hosts (footballapp 205/101). Die Prod-Schritte im v1.11.4-Block unten sind damit ERLEDIGT.
 > **🩹 2026-09-08 frueh — Regression seit v1.11.4: Dependabot-PRs rot (GEMESSEN recyclage 34116739560/34116738027/34116572588):**
 > der changes-Job verlangte das Watchtower-Secret auf JEDEM Lauf, sobald der Caller `staging-watchtower-url` setzt — Dependabot-PR-Laeufe
 > haben keine Repo-Secrets ⇒ `staging-watchtower-url gesetzt, aber Secret … fehlt`, Run rot, Jarvis-Auto-Merge blockiert (PRs #116/#125/#127).
