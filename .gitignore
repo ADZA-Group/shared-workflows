@@ -1,2 +1,5 @@
 # local dev tools (actionlint.exe etc.) — not committed
 /bin/
+# Python-Bytecode/-Cache aus scripts/tests (pytest im actionlint-Gate) — sonst dirty tree fuer release-v1.sh Gate 1
+__pycache__/
+.pytest_cache/
