@@ -14,7 +14,9 @@
 > Run 34217296364 → release.yml 34217368443 gruen (2 min) → v1^{} = v1.12.9^{} = f08ebeb. Ruecklauf-Beweis kommt ueber die recyclage-PR-Lane
 > (setup-node „node-version: 22“). #125 selbst: Codex-WSL baut auf Branch `deps/npm-majors-2026-09` (Cherry-pick 66c5488 + Typ-Augmentation
 > `frontend/src/vitest-jest-dom.d.ts` fuer jest-dom 7 unter vitest 5 — Upstream-Issue testing-library/jest-dom #738 offen); Codex-Sandbox kann
-> `.git` nicht schreiben (index.lock EROFS) → Claude committet/pusht aus Windows.
+> `.git` nicht schreiben (index.lock EROFS) → Claude committet/pusht aus Windows. **ERLEDIGT 11:13 UTC:** PR #128 (Lane 34218231922 gruen
+> auf Node 22 = E2E-Beweis v1.12.9; Codex lokal lint/typecheck/test 183/build alle 0) → Squash 048b796 → dev-Run 34218713203 gruen, Staging 190
+> Match Versuch 1; #125 geschlossen. Lehren: Codex-Sandbox = `.git` + `~/.npm` read-only (Cache /tmp), npm 9 vs 11 Lockfile-Churn, lange Codex-Jobs als `codex exec` detached + Monitor.
 > **✅ 2026-09-08 10:07 UTC — Weekly-Release-FILTER: releasen nur bei Aenderungen unter `.github/**` oder `scripts/**` (Azad-Auftrag; Pair 2 Runden Design/Review, 1 echter Fund):**
 > `weekly-release.yml` Vorbedingungen: Tree-Diff `git diff --name-only v1..dev -- .github scripts` leer ⇒ go=false + `::notice` + Step-Summary
 > mit Dateiliste (`paste -sd ' ' -`, NICHT xargs — Codex R2: Apostroph im Dateinamen = xargs-Fehler = Step rot). Manuell (release-v1.sh)
