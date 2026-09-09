@@ -127,6 +127,7 @@ this table and `reusable-ci.yml` drift apart.
 | `diff-coverage-threshold` | `80` | coverage on changed lines (advisory on PR/dev, hard on main pushes; main compares against `github.event.before`; off on tags, `workflow_dispatch` and `schedule` — there is no push diff, the gate could only refuse or be vacuously green); `0` disables |
 | `enable-property-tests` | `true` | hypothesis lane (advisory on dev, blocking on risky pushes and main) |
 | `full-ci-on-dev-push` | `false` | `true` = security + property lanes also on dev/feature pushes (no CI diet) |
+| `nightly-full-lanes` | `false` | `true` = the nightly `schedule` run drives ALL code lanes (tests, docker build, frontend) instead of security-only. Without it the promote is the first honest test — measured 2026-09-09: adza-website's main had been red on Bandit for 26 days unnoticed. Hardens no gates. |
 | `risky-paths` | `[]` | JSON globs merged with the built-in risky defaults (auth/security/permissions/migrations/models/payment/billing/price/delete/purge, Dockerfile, docker-compose*): a hit switches the diet off and makes property-tests/hadolint/bandit blocking |
 | `full-ci-paths` | `[]` | JSON globs that force the full code lanes (tests, build, frontend) without hardening gates — e.g. `templates/**`, `static/**`, `translations/**` |
 | `security-blocking-scanners` | `""` | opt-in dual-gate per app, comma-separated from `semgrep,pip-audit`: the named scanners block on main/tags and on risky pushes, stay advisory on PR/dev. Unknown names fail the `changes` job. |

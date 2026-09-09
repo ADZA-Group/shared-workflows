@@ -129,7 +129,12 @@ on:
         required: false
         type: boolean
         default: false
-        description: "true = Security-Suite + Property-Tests auch auf dev-/Feature-Pushes (Verhalten vor v1.9.0). Default false: dort skippen — PR, main-Push, dispatch und schedule laufen immer voll (CI-Diät, Runner-104-Entlastung)"
+        description: "true = Security-Suite + Property-Tests auch auf dev-/Feature-Pushes (Verhalten vor v1.9.0). Default false: dort skippen — PR, main-Push und dispatch laufen voll (CI-Diät, Runner-104-Entlastung). ACHTUNG: `schedule` gehört seit 2026-09-04 NICHT mehr dazu — der Nightly ist Security-only, siehe `nightly-full-lanes`."
+      nightly-full-lanes:
+        required: false
+        type: boolean
+        default: false
+        description: "true = der naechtliche `schedule`-Lauf faehrt ALLE Code-Lanes (Test-Matrix, Docker-Build, Frontend) statt nur der Security-Suite. Default false = Security-only (Entruempelung 2026-09-04). Sinnvoll fuer Repos, deren Gates auf main scharf sind und auf dev advisory: ohne das ist der PROMOTE der erste ehrliche Test — GEMESSEN 2026-09-09, adza-website-main scheiterte 26 Tage lang unbemerkt an Bandit, MitarbeiterApp an a11y + Trivy. Haertet KEINE Gates (risky/fullci bleiben aus), schaltet nur die Lanes ein. WICHTIG: Schedules laufen nur vom DEFAULT-Branch. Ist der `main` (MitarbeiterApp, footballapp, recyclage, adza-website), sind Trivy/a11y/bandit dort scharf und der Nightly meldet echt. Ist der `dev` (rechnungsapp), bleiben diese Gates advisory — die Test-Matrix ist trotzdem immer hart, ein Nightly faengt dort also Testbrueche, aber keine Scanner-Verstoesse (Codex-Fund 09.09.)."
       risky-paths:
         required: false
         type: string
@@ -351,6 +356,7 @@ jobs:
           MAIN_PUSH: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
           DEV_PUSH: ${{ github.ref == 'refs/heads/dev' && github.event_name == 'push' }}
           IS_SCHEDULE: ${{ github.event_name == 'schedule' }}
+          NIGHTLY_FULL: ${{ inputs.nightly-full-lanes }}
           IS_DISPATCH: ${{ github.event_name == 'workflow_dispatch' }}
           DEPRECATED_INPUTS: "${{ inputs.enable-ghcr-prune && 'enable-ghcr-prune ' || '' }}${{ inputs.enable-load-test && 'enable-load-test ' || '' }}${{ inputs.multi-arch && 'multi-arch ' || '' }}${{ inputs.enable-mutation && 'enable-mutation ' || '' }}${{ inputs.cloud-runner-label != '' && 'cloud-runner-label ' || '' }}"
           DEPRECATED_SECRETS: "${{ secrets.DISCORD_WEBHOOK != '' && 'DISCORD_WEBHOOK ' || '' }}${{ secrets.SLACK_WEBHOOK != '' && 'SLACK_WEBHOOK ' || '' }}${{ secrets.TELEGRAM_BOT_TOKEN != '' && 'TELEGRAM_BOT_TOKEN ' || '' }}${{ secrets.TELEGRAM_CHAT_ID != '' && 'TELEGRAM_CHAT_ID ' || '' }}"
@@ -388,7 +394,19 @@ jobs:
           # damit weder risky noch der fail-closed-Pfad des Filters die Lanes wieder einschalten.
           # Tests/Build/Frontend liefen beim Push gegen dieselben Pins; nachts zaehlt nur die
           # Security-Lane (CodeQL, pip-audit, Semgrep, Bandit, gitleaks) — advisory, nicht force-blocking.
-          if [ "$IS_SCHEDULE" = "true" ]; then PY=false; DK=false; FR=false; CI=false; RISKY=false; FULLCI=false; fi
+          # Caller mit `nightly-full-lanes: true` bekommen nachts die vollen Code-Lanes
+          # (2026-09-09): dev faehrt die Diaet, main die scharfen Gates — ohne einen echten
+          # Nacht-Lauf ist der PROMOTE der erste ehrliche Test. GEMESSEN an diesem Tag:
+          # adza-website-main scheiterte 26 Tage unbemerkt an Bandit, MitarbeiterApp an
+          # a11y + Trivy. RISKY/FULLCI bleiben in BEIDEN Zweigen aus — nachts werden Lanes
+          # eingeschaltet, keine Gates gehaertet.
+          if [ "$IS_SCHEDULE" = "true" ]; then
+            if [ "$NIGHTLY_FULL" = "true" ]; then
+              PY=true;  DK=true;  FR=true;  CI=true;  RISKY=false; FULLCI=false
+            else
+              PY=false; DK=false; FR=false; CI=false; RISKY=false; FULLCI=false
+            fi
+          fi
           ANY=false
           if [ "$PY" = "true" ] || [ "$DK" = "true" ] || [ "$FR" = "true" ]; then ANY=true; fi
           LIGHT=false
