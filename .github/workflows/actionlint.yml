@@ -52,3 +52,26 @@ jobs:
       # reusable-ci-Inputs nennen — drei Doku-Luegen an einem Tag waren der Ausloeser.
       - name: Docs drift (scripts/check_docs.py)
         run: python3 scripts/check_docs.py
+
+  # 🔑 Secret-Scan (war bis 09.09.2026 der eigene Workflow `secrets.yml` → zweiter
+  # Run pro Push). Hier als Geschwister-Job, damit pro Push nur EIN Run in der
+  # Liste steht. Umgekehrte Richtung als im Rest der Fleet, weil weekly-release.yml
+  # (Zeile 78) den Gate-Lauf per API ueber den DATEINAMEN `actionlint.yml` sucht —
+  # diese Datei darf weder verschwinden noch umziehen.
+  # Neue Kopplung, bewusst: ein verifizierter Leak faerbt jetzt den Gate-Lauf rot
+  # und blockiert damit den Auto-Release. Repo ist PUBLIC — genau richtig so.
+  # Full-History-Scan weiterhin manuell: `gh workflow run secrets.yml`.
+  secret-scan:
+    name: "🔑 Secrets"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      # Nur verifizierte Live-Credentials melden (kein Fehlalarm-Lärm).
+      # Ohne base/head (dispatch) scannt die Action die volle Historie.
+      - uses: trufflesecurity/trufflehog@363923b901c911a9164f50b6c423f47c15372b1c # v3.97.4
+        with:
+          extra_args: --results=verified
+
