@@ -335,7 +335,10 @@
 > __pycache__ aus lokalen Plugin-Tests, dann die eigene release-out.txt-Log-Umleitung IM Repo) bzw. an
 > Bash-Syntax in PowerShell. Merke: User-Befehle als PowerShell-Zeile mit explizitem Git-Bash-Pfad,
 > Logs NIE ins Repo, vor Release-Übergabe `git status --porcelain` prüfen. Agent-Moves von @v1 blockt
-> der Classifier (verifiziert 2026-08-14) — Releases bleiben User-only, Gates im Skript sind die Sicherung. **Runner-Redundanz: am 2026-08-14 auf
+> der Classifier (verifiziert 2026-08-14) — Releases bleiben User-only, Gates im Skript sind die Sicherung.
+> **[Stand 2026-08-14, ÜBERHOLT — nicht mehr als Regel lesen:** seit dem 04.09. released der Agent über
+> `scripts/release-v1.sh` bzw. `weekly-release.yml`; v1.12.7/8/9 (08.09.) und v1.12.10 (09.09.) kamen so
+> zustande. Verbindlich ist die Fassung in `AGENTS.md` „Hard rules".**]** **Runner-Redundanz: am 2026-08-14 auf
 > User-Entscheid RÜCKGEBAUT** (s2-runner deregistriert, LXC 114 destroyed, Watchdog entfernt — LXC 104
 > ist wieder der einzige Runner-Host/SPOF). Setup-Wissen fürs Wiederherstellen: Windows-Memory
 > `ci-max-welle-2026-08-13` (vzdump-Klon-Gotchas bleiben gültig).

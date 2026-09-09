@@ -17,7 +17,7 @@ One canonical `reusable-ci.yml` orchestrator replaces the per-app pipelines. Bra
 
 ## Hard rules (do not violate)
 - **Commit identity via `-c` only, never `git config`**: `git -c user.name="$(git log -1 --format=%an)" -c user.email="$(git log -1 --format=%ae)" commit …`.
-- **The `@v1` tag is a shared release pointer moved ONLY by the human** via `scripts/release-v1.sh`. Agents never move it / never `git tag -f v1`.
+- **The `@v1` tag is a shared release pointer — never move it by hand.** `git tag -f v1`, manual ref bending, or any push to `refs/tags/v1` outside the release machinery stays forbidden. Agents MAY cut a release, but only through the two gated paths: `bash scripts/release-v1.sh <sha> vX.Y.Z --yes` or `gh workflow run weekly-release.yml --ref dev`. Both refuse to run unless the preconditions hold (green actionlint gate for exactly that SHA, no open runs, no `.release-hold`, dev ahead of `@v1`) and finish with one atomic `push --atomic refs/tags/vX.Y.Z +refs/tags/v1`. Before releasing, run `scripts/check_callers.py` against dev **and** main; afterwards verify the peeled target — `git ls-remote origin 'refs/tags/v1^{}'` — never the docs. (This replaces the older "human only" rule: v1.12.7/8/9 were released autonomously via the weekly workflow on 2026-09-08, v1.12.10 on 2026-09-09.)
 - **`uses: ./…` inside a reusable resolves against the CALLER repo**, not this one → reference siblings by full path `adza-group/shared-workflows/.github/…@<ref>` (literal ref, no `${{ }}`).
 - **A called workflow's GITHUB_TOKEN cannot exceed the caller's** → over-claiming a permission = `startup_failure`. Permissions pass through every caller layer.
 - Internal refs of the reusables float on `@v1` (not @dev/exact) → no drift.
