@@ -228,10 +228,52 @@ jobs:
           fi
         continue-on-error: ${{ !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
 
+      # Browser fuer pa11y bereitstellen — BEWUSST ein eigener Step OHNE
+      # continue-on-error. pa11y-ci startet Chrome ueber puppeteer; liegt keiner
+      # im erwarteten Cache (~/.cache/puppeteer), stirbt der Lauf mit
+      # "Could not find Chrome (ver. …)" — GEMESSEN 09.09.2026, MitarbeiterApp
+      # Run 34375626405. Weil der a11y-Step ausserhalb von main advisory ist,
+      # wurde der Job dabei GRUEN gemeldet, ohne dass je eine Seite geprueft
+      # wurde: ein stillschweigend wertloses Gate. Steckte diese Vorbereitung im
+      # advisory Step, bliebe genau das so (Codex-Fund) — hier scheitert sie hart.
+      - name: Ensure browser for a11y
+        id: a11y-browser
+        if: ${{ inputs.a11y-enabled && (inputs.a11y-url != '' || inputs.run-build) }}
+        run: |
+          # type -P statt command -v: liefert nur echte Dateien im PATH,
+          # keine Aliase/Funktionen.
+          CHROME="$(type -P google-chrome-stable || type -P google-chrome \
+                    || type -P chromium-browser || type -P chromium || true)"
+          if [ -n "$CHROME" ]; then
+            echo "System-Browser gefunden: $CHROME"
+          else
+            echo "kein System-Browser — lade Chrome fuer puppeteer nach"
+            # Ohne if/else wuerde `bash -e` schon an der Zuweisung abbrechen und
+            # die Meldung unten nie erreichen; stderr bleibt sichtbar, sonst ist
+            # die Download-Diagnose weg (beides Codex-Funde).
+            if ! OUT="$(npx --yes puppeteer browsers install chrome)"; then
+              echo "::error::a11y: Chrome-Download fehlgeschlagen — siehe Ausgabe oben"
+              exit 1
+            fi
+            printf '%s\n' "$OUT"
+            # Ausgabeformat ist "{{browser}}@{{buildId}} {{path}}" — alles ab dem
+            # zweiten Feld ist der Pfad. `awk $NF` zerlegte Pfade mit Leerzeichen.
+            CHROME="$(printf '%s\n' "$OUT" | tail -n1 | cut -d' ' -f2-)"
+          fi
+          if [ -z "$CHROME" ] || [ ! -x "$CHROME" ]; then
+            echo "::error::a11y: kein lauffaehiger Browser ('${CHROME:-leer}') — kein stiller Durchmarsch"
+            exit 1
+          fi
+          case "$CHROME" in
+            *'"'*) echo "::error::a11y: Browserpfad enthaelt ein Anfuehrungszeichen und wuerde die pa11y-Config zerlegen"; exit 1 ;;
+          esac
+          echo "chrome=$CHROME" >> "$GITHUB_OUTPUT"
+
       - name: Accessibility (pa11y-ci)
         if: ${{ inputs.a11y-enabled && (inputs.a11y-url != '' || inputs.run-build) }}
         continue-on-error: ${{ !(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
         env:
+          CHROME: ${{ steps.a11y-browser.outputs.chrome }}
           A11Y_URL: ${{ inputs.a11y-url }}
           A11Y_PATHS: ${{ inputs.a11y-paths }}
           A11Y_THRESHOLD: ${{ inputs.a11y-threshold }}
@@ -277,7 +319,10 @@ jobs:
           {
             "defaults": {
               "threshold": ${A11Y_THRESHOLD},
-              "chromeLaunchConfig": { "args": ["--no-sandbox", "--disable-dev-shm-usage"] },
+              "chromeLaunchConfig": {
+                "executablePath": "${CHROME}",
+                "args": ["--no-sandbox", "--disable-dev-shm-usage"]
+              },
               "timeout": 30000
             },
             "urls": [ ${URLS} ]
