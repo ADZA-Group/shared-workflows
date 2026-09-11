@@ -52,24 +52,40 @@ runs:
         export COVERAGE_RCFILE=.coveragerc
         coverage combine
         coverage xml -o coverage.xml
-        TOTAL=$(coverage report --format=total 2>/dev/null || true)
-        if ! [[ "$TOTAL" =~ ^[0-9]+$ ]]; then
-          TOTAL=$(coverage report | tail -1 | grep -oE '[0-9]+%' | tr -d '%' || true)
+        # Den UNGERUNDETEN Wert nehmen. `--format=total` liefert eine Ganzzahl
+        # (79,72 % -> "80"), und auch `--precision=2` rundet noch: 79,996 % wird
+        # zu "80.00" und passiert eine Schwelle von 80. Beides GEMESSEN am
+        # 11.09.2026. Nur die JSON-Ausgabe traegt den vollen Wert.
+        TOTAL=$(coverage json -o - 2>/dev/null \
+          | python3 -c 'import json,sys; print(json.load(sys.stdin)["totals"]["percent_covered"])' \
+          2>/dev/null || true)
+        if ! [[ "$TOTAL" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+          # Ein blockierendes Gate darf NICHT still auf einen gerundeten Wert
+          # zurueckfallen — dann waere der Fehler wieder da, nur leiser.
+          if [ "$BLOCKING" = "true" ]; then
+            echo "::error::coverage total nicht exakt lesbar (coverage json) — ein blockierendes Gate faellt nicht auf gerundete Werte zurueck"; exit 1
+          fi
+          TOTAL=$(coverage report --format=total 2>/dev/null || true)
         fi
-        if ! [[ "$TOTAL" =~ ^[0-9]+$ ]]; then
+        if ! [[ "$TOTAL" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
           echo "::error::could not determine coverage total"; exit 1
         fi
+        # Fuer die Anzeige runden, fuer die ENTSCHEIDUNG nie.
+        ANZEIGE=$(python3 -c 'import sys; print(f"{float(sys.argv[1]):.2f}")' "$TOTAL")
         echo "## 📊 Coverage" >> "$GITHUB_STEP_SUMMARY"
         echo "| Metric | Value |" >> "$GITHUB_STEP_SUMMARY"
         echo "|--------|-------|" >> "$GITHUB_STEP_SUMMARY"
-        echo "| Union coverage | **${TOTAL}%** |" >> "$GITHUB_STEP_SUMMARY"
+        echo "| Union coverage | **${ANZEIGE}%** |" >> "$GITHUB_STEP_SUMMARY"
         echo "| Threshold | ${THRESHOLD}% |" >> "$GITHUB_STEP_SUMMARY"
         coverage report >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
-        if [ "$TOTAL" -lt "$THRESHOLD" ]; then
+        # Numerisch in Python vergleichen: `[ -lt ]` kann kein Komma, und awk
+        # braeuchte eine Aussage ueber Locale und Verfuegbarkeit. Python laeuft
+        # hier ohnehin, coverage IST Python.
+        if ! python3 -c 'import sys; sys.exit(0 if float(sys.argv[1]) >= float(sys.argv[2]) else 1)' "$TOTAL" "$THRESHOLD"; then
           if [ "$BLOCKING" = "true" ]; then
-            echo "::error::coverage ${TOTAL}% < ${THRESHOLD}%"; exit 1
+            echo "::error::coverage ${ANZEIGE}% < ${THRESHOLD}%"; exit 1
           else
-            echo "::warning::coverage ${TOTAL}% < ${THRESHOLD}% (advisory)"
+            echo "::warning::coverage ${ANZEIGE}% < ${THRESHOLD}% (advisory)"
           fi
         fi
 
